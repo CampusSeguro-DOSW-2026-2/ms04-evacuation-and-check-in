@@ -22,3 +22,23 @@
 # virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
 hs_err_pid*
 replay_pid*
+
+# Maven (esential)
+target/
+
+# IntelliJ IDEA (esential)
+.idea/
+*.iml
+out/
+
+# Visual Studio Code (esential)
+.vscode/
+*.code-workspace
+
+# Environment and secrets variables
+.env
+*.env
+
+# System files
+.DS_Store
+Thumbs.db
