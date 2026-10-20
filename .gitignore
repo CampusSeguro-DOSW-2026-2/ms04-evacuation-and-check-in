@@ -18,7 +18,57 @@
 *.zip
 *.tar.gz
 *.rar
+.mvn
+*.cmd
 
 # virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
 hs_err_pid*
 replay_pid*
+
+# Maven (esential)
+target/
+mvnw
+
+HELP.md
+
+# IntelliJ IDEA (esential)
+.idea
+*.iws
+*.iml
+*.ipr
+
+# Visual Studio Code (esential)
+.vscode/
+*.code-workspace
+
+# Environment and secrets variables
+.env
+*.env
+
+# System files
+.DS_Store
+Thumbs.db
+
+.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
