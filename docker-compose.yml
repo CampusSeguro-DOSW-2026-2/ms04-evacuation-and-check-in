@@ -1,0 +1,48 @@
+# Desarrollo local de MS04: el servicio y su PostgreSQL propia (nadie más accede a ella).
+# Las variables salen del archivo .env (copie .env.example); no hay credenciales en este archivo.
+#
+#   docker compose up -d --build        levanta la base y MS04
+#   docker compose down                 baja los contenedores (con -v también se borra la base de datos)
+#
+# En el despliegue real no se publica el puerto de MS04: el acceso externo es solo por el API Gateway (8080).
+# Aquí se publica solo en 127.0.0.1 para poder probar sin el Gateway enviando X-User-Id y X-User-Role a mano.
+services:
+  ms04-db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${DB_NAME:-ms04_db}
+      POSTGRES_USER: ${DB_USERNAME:-ms04_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD es obligatoria (ver .env.example)}
+    ports:
+      - "127.0.0.1:${DB_HOST_PORT:-5434}:5432"
+    volumes:
+      - ms04-db-data:/var/lib/postgresql/data
+      # Los scripts de database/ se ejecutan solo la primera vez que se crea el volumen
+      - ./database:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  ms04:
+    build: .
+    environment:
+      DB_URL: jdbc:postgresql://ms04-db:5432/${DB_NAME:-ms04_db}
+      DB_USERNAME: ${DB_USERNAME:-ms04_user}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD es obligatoria (ver .env.example)}
+      SERVER_PORT: "8084"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      GATEWAY_URL: ${GATEWAY_URL:-}
+      GATEWAY_SERVICE_KEY: ${GATEWAY_SERVICE_KEY:-}
+      GATEWAY_TIMEOUT_MS: ${GATEWAY_TIMEOUT_MS:-2000}
+      INTERNAL_ALLOWED_SERVICES: ${INTERNAL_ALLOWED_SERVICES:-ms06}
+      SWAGGER_ENABLED: ${SWAGGER_ENABLED:-false}
+    ports:
+      - "127.0.0.1:8084:8084"
+    depends_on:
+      ms04-db:
+        condition: service_healthy
+
+volumes:
+  ms04-db-data: {}

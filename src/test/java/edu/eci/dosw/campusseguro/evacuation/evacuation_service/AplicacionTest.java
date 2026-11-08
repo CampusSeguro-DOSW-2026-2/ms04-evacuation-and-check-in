@@ -47,7 +47,9 @@ class AplicacionTest {
         mockMvc.perform(get("/actuator/health"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("UP"))
+                .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$.components").doesNotExist())
+                .andExpect(jsonPath("$.groups").doesNotExist())
                 .andExpect(header().exists(CorrelationIds.HEADER));
     }
 

@@ -38,8 +38,11 @@ management:
         include: health
   endpoint:
     health:
+      # El health responde exactamente {"status":"UP"} o {"status":"DOWN"}, sin detalles ni grupos (Estándares, 11)
       show-details: never
       show-components: never
+      probes:
+        enabled: false
 
 logging:
   pattern:
