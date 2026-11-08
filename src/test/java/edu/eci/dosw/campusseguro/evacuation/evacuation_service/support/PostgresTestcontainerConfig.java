@@ -25,6 +25,7 @@ public class PostgresTestcontainerConfig {
      */
     @Bean
     @ServiceConnection
+    @SuppressWarnings("resource")
     PostgreSQLContainer postgres() {
         return new PostgreSQLContainer(IMAGEN)
                 .withCopyFileToContainer(MountableFile.forHostPath("database"), "/docker-entrypoint-initdb.d/");

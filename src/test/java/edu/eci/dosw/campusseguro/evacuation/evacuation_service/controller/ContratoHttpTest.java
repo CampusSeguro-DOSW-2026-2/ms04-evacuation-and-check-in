@@ -145,7 +145,7 @@ class ContratoHttpTest {
                 .thenReturn(PageResponse.of(List.of(), 0, 20, 0));
         when(historialService.historial(any(), any(), any(), anyInt(), anyInt()))
                 .thenReturn(PageResponse.of(List.of(), 0, 20, 0));
-        when(resultadosService.resultados(any())).thenReturn(new Resultados(EVENTO, true, EstadoEvento.FINALIZADO,
+        when(resultadosService.resultados(any(), any())).thenReturn(new Resultados(EVENTO, true, EstadoEvento.FINALIZADO,
                 AHORA, AHORA, true, 200L, 177, 23L, new TotalesPorEstado(120, 35, 4, 18), List.of(), List.of(),
                 List.of()));
         when(consultaEventoService.listar(any(), anyInt(), anyInt()))

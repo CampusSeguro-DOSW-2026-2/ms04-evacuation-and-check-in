@@ -96,5 +96,8 @@ Piezas compartidas ya hechas, que no hay que volver a escribir:
   `PermissionChecker`. Las rutas internas de MS06 las protege `SecurityConfig` por `X-Service-Name`.
 * **Auditoría:** `AuditRecorder` envía el evento a MS08 sin afectar la respuesta si MS08 falla.
 * **Paginación:** `Paginacion.validar(page, size)` y `PageResponse`.
+* **Población objetivo (MS01):** `PoblacionObjetivoClient` devuelve los usuarios ACTIVOS de los roles convocados
+  (RN-MS04-15), o vacío si MS01 no responde. Lo usan los resultados (RF-MS04-10) y sirve para los pendientes
+  (RF-MS04-07). La ruta de MS01 (`GET /api/v1/users/by-role`) está pendiente de acordar (decisión abierta n.º 2).
 
 Los ids que vienen de MS02 (punto de encuentro, edificio, espacio) son UUID, como en MS02.
