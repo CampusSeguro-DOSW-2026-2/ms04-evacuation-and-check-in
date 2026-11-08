@@ -26,6 +26,12 @@ public interface CheckinRepository extends Repository<Checkin, UUID> {
     Checkin save(Checkin checkin);
 
     /**
+     * Envía a la base de datos los check-ins pendientes de la transacción, para que el check-in recién guardado
+     * tenga ya su {@code numero} y su {@code registrado_en}
+     */
+    void flush();
+
+    /**
      * Busca un check-in por su id
      *
      * @param id id del check-in
