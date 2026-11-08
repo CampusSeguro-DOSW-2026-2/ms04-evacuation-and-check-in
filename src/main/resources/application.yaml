@@ -63,6 +63,12 @@ gateway:
   service-key: ${GATEWAY_SERVICE_KEY:}
   timeout-ms: ${GATEWAY_TIMEOUT_MS:2000}
 
+# Rutas de los otros microservicios que MS04 llama a través del Gateway
+clients:
+  ms02:
+    # Zona segura (punto de encuentro) por id; responde id, codigo, nombre y estado (ACTIVO o INACTIVO)
+    safe-zones-path: ${MS02_SAFE_ZONES_PATH:/api/v1/safe-zones/{id}}
+
 # Servicios que pueden usar las rutas internas de MS04, separados por coma (RN-MS04-23).
 # El Gateway inyecta X-Service-Name como ms01 ... ms08 a partir de la clave de servicio.
 internal:
