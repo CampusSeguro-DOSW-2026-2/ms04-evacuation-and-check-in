@@ -1,6 +1,7 @@
 package edu.eci.dosw.campusseguro.evacuation.evacuation_service.service;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -79,15 +80,33 @@ public class CheckinService {
     }
 
     /**
-     * Transacción del check-in: relee el evento con bloqueo compartido (SELECT ... FOR SHARE), lo vuelve a verificar
-     * por si cambió mientras se consultaba MS02, y agrega el check-in
+     * Transacción del check-in (RF-MS04-03): toma el bloqueo asesor del usuario en el evento para que sus reportes
+     * simultáneos se atiendan uno tras otro (RNF-MS04-04), relee el evento con bloqueo compartido
+     * (SELECT ... FOR SHARE) y lo vuelve a verificar por si cambió mientras se consultaba MS02, y compara con el
+     * estado vigente: si el reporte repite el vigente no agrega nada y devuelve el vigente; si no, agrega el check-in
      */
     private Registro guardar(UUID eventoId, CheckinRequest request, RequesterIdentity requester) {
+        checkins.bloquearUsuarioEnEvento(eventoId, requester.userId());
         verificarEvento(eventos.buscarParaCheckin(eventoId), requester);
         Optional<Checkin> vigente = checkins.buscarVigente(eventoId, requester.userId());
+        if (vigente.isPresent() && repiteElVigente(vigente.get(), request)) {
+            return new Registro(vigente.get(), false, vigente.get());
+        }
         Checkin nuevo = checkins.save(nuevoCheckin(eventoId, request, requester));
         checkins.flush();
-        return new Registro(nuevo, vigente.isEmpty());
+        return new Registro(nuevo, vigente.isEmpty(), vigente.orElse(null));
+    }
+
+    /**
+     * Un reporte repite el vigente si trae el mismo estado; con Estoy a salvo, además, el mismo punto de encuentro.
+     * Requiero asistencia con otra ubicación sigue siendo el mismo estado (2_requisitos-funcionales.md, RF-MS04-03)
+     */
+    static boolean repiteElVigente(Checkin vigente, CheckinRequest request) {
+        if (vigente.getEstado() != request.estado()) {
+            return false;
+        }
+        return request.estado() != EstadoCheckin.SAFE
+                || Objects.equals(vigente.getPuntoEncuentroId(), request.puntoEncuentroId());
     }
 
     /**
@@ -140,9 +159,10 @@ public class CheckinService {
     /**
      * Resultado de la transacción del check-in
      *
-     * @param checkin check-in guardado
+     * @param checkin check-in nuevo, o el vigente si el reporte lo repetía
      * @param creado true si es el primer check-in del usuario en el evento
+     * @param anterior estado vigente antes del reporte; null en el primer check-in
      */
-    private record Registro(Checkin checkin, boolean creado) {
+    private record Registro(Checkin checkin, boolean creado, Checkin anterior) {
     }
 }
