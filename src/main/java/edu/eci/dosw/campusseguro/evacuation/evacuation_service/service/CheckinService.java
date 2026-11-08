@@ -5,10 +5,15 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.audit.AuditAction;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.audit.AuditRecorder;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.audit.AuditResult;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.PuntoEncuentro;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.PuntoEncuentroClient;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.CheckinRequest;
@@ -19,6 +24,7 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.Checkin;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.EstadoCheckin;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.Evento;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.exception.ApiException;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.exception.ErrorCode;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.CheckinRepository;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.EventoRepository;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.RequesterIdentity;
@@ -39,17 +45,23 @@ public class CheckinService {
     public static final String EVENTO_NO_APLICA = "Este evento no le aplica.";
     public static final String PUNTO_NO_ENCONTRADO = "Punto de encuentro no encontrado.";
     public static final String PUNTO_INACTIVO = "El punto de encuentro no está activo.";
+    /** Detalle de auditoría de un reporte que repite el estado vigente */
+    public static final String SIN_CAMBIO = "SIN_CAMBIO";
+
+    private static final Logger log = LoggerFactory.getLogger(CheckinService.class);
 
     private final EventoRepository eventos;
     private final CheckinRepository checkins;
     private final PuntoEncuentroClient puntosEncuentro;
+    private final AuditRecorder auditoria;
     private final TransactionTemplate transaccion;
 
     public CheckinService(EventoRepository eventos, CheckinRepository checkins, PuntoEncuentroClient puntosEncuentro,
-            PlatformTransactionManager transactionManager) {
+            AuditRecorder auditoria, PlatformTransactionManager transactionManager) {
         this.eventos = eventos;
         this.checkins = checkins;
         this.puntosEncuentro = puntosEncuentro;
+        this.auditoria = auditoria;
         this.transaccion = new TransactionTemplate(transactionManager);
     }
 
@@ -69,14 +81,59 @@ public class CheckinService {
      */
     public ResultadoCheckin registrar(UUID eventoId, CheckinRequest request, RequesterIdentity requester,
             String correlationId) {
-        CheckinValidator.validar(request);
-        // El evento se revisa antes de llamar a MS02, para no consultarlo si el check-in igual se va a rechazar
-        verificarEvento(eventos.findById(eventoId), requester);
-        if (request.estado() == EstadoCheckin.SAFE) {
-            validarPuntoEncuentro(request.puntoEncuentroId(), requester, correlationId);
+        Registro registro;
+        try {
+            CheckinValidator.validar(request);
+            // El evento se revisa antes de llamar a MS02, para no consultarlo si el check-in igual se va a rechazar
+            verificarEvento(eventos.findById(eventoId), requester);
+            if (request.estado() == EstadoCheckin.SAFE) {
+                validarPuntoEncuentro(request.puntoEncuentroId(), requester, correlationId);
+            }
+            registro = transaccion.execute(status -> guardar(eventoId, request, requester));
+        } catch (RuntimeException e) {
+            auditarFallo(eventoId, requester, e, correlationId);
+            throw e;
         }
-        Registro registro = transaccion.execute(status -> guardar(eventoId, request, requester));
+        auditarExito(registro, requester, correlationId);
         return new ResultadoCheckin(aRespuesta(registro.checkin()), registro.creado());
+    }
+
+    /**
+     * Auditoría de un check-in aceptado: REGISTRO_CHECKIN si es el primero del usuario en el evento;
+     * CAMBIO_ESTADO_CHECKIN con el estado anterior y el nuevo si lo cambia, o con SIN_CAMBIO si repite el vigente
+     */
+    private void auditarExito(Registro registro, RequesterIdentity requester, String correlationId) {
+        String recurso = AuditRecorder.checkinResource(registro.checkin().getId());
+        if (registro.anterior() == null) {
+            auditoria.recordAs(AuditAction.REGISTRO_CHECKIN, AuditResult.EXITO, requester, recurso,
+                    registro.checkin().getEstado().name(), correlationId);
+            return;
+        }
+        String detalle = registro.anterior() == registro.checkin()
+                ? SIN_CAMBIO
+                : registro.anterior().getEstado().name() + "->" + registro.checkin().getEstado().name();
+        auditoria.recordAs(AuditAction.CAMBIO_ESTADO_CHECKIN, AuditResult.EXITO, requester, recurso, detalle,
+                correlationId);
+    }
+
+    /**
+     * Auditoría de un check-in rechazado: el recurso es el evento, porque no se creó check-in, y el detalle es el
+     * código del error. La acción es CAMBIO_ESTADO_CHECKIN si el usuario ya tenía estado vigente en el evento y
+     * REGISTRO_CHECKIN si no. Nunca lanza, para no tapar el error original
+     */
+    private void auditarFallo(UUID eventoId, RequesterIdentity requester, RuntimeException error,
+            String correlationId) {
+        String detalle = error instanceof ApiException api ? api.getCode().getCode() : ErrorCode.INTERNAL_ERROR.getCode();
+        AuditAction accion = AuditAction.REGISTRO_CHECKIN;
+        try {
+            if (eventoId != null && checkins.buscarVigente(eventoId, requester.userId()).isPresent()) {
+                accion = AuditAction.CAMBIO_ESTADO_CHECKIN;
+            }
+        } catch (RuntimeException e) {
+            log.warn("No se pudo leer el estado vigente para auditar el check-in fallido: {}", e.toString());
+        }
+        auditoria.recordAs(accion, AuditResult.FALLO, requester, AuditRecorder.eventResource(eventoId), detalle,
+                correlationId);
     }
 
     /**
