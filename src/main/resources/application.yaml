@@ -19,6 +19,11 @@ spring:
         jdbc:
           time_zone: UTC
 
+  jackson:
+    deserialization:
+      # Un campo que el contrato no define se rechaza con 400 (RG-04), p. ej. un id de usuario en el check-in
+      fail-on-unknown-properties: true
+
 server:
   # Puerto interno de MS04 (Estándares, sección 2)
   port: ${SERVER_PORT:8084}
