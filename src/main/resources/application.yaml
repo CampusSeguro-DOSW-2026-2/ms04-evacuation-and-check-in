@@ -1,3 +1,61 @@
+# Configuración de MS04. Todos los valores sensibles llegan por variables de entorno (RNF-MS04-13).
+# En local se pueden poner en un archivo .env (no versionado), a partir de .env.example.
 spring:
   application:
-    name: evacuation-service
+    name: ms04-evacuation-and-check-in
+  config:
+    import: optional:file:.env[.properties]
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+  jpa:
+    open-in-view: false
+    hibernate:
+      # El esquema lo crean los scripts de database/; JPA solo lo valida.
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+
+server:
+  # Puerto interno de MS04 (Estándares, sección 2)
+  port: ${SERVER_PORT:8084}
+  error:
+    whitelabel:
+      enabled: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+      show-components: never
+
+logging:
+  pattern:
+    console: "%X{correlation_id:-sin-correlacion} %d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level %logger{36} - %msg%n"
+  level:
+    root: ${LOG_LEVEL:INFO}
+
+# Swagger solo en desarrollo local; nunca se expone a través del Gateway (Estándares, sección 2)
+springdoc:
+  api-docs:
+    enabled: ${SWAGGER_ENABLED:false}
+  swagger-ui:
+    enabled: ${SWAGGER_ENABLED:false}
+
+# Llamadas salientes de MS04 (MS01, MS02, MS05 y MS08) a través del API Gateway (Estándares, sección 5)
+gateway:
+  url: ${GATEWAY_URL:}
+  service-key: ${GATEWAY_SERVICE_KEY:}
+  timeout-ms: ${GATEWAY_TIMEOUT_MS:2000}
+
+# Servicios que pueden usar las rutas internas de MS04, separados por coma (RN-MS04-23).
+# El Gateway inyecta X-Service-Name como ms01 ... ms08 a partir de la clave de servicio.
+internal:
+  allowed-services: ${INTERNAL_ALLOWED_SERVICES:ms06}
