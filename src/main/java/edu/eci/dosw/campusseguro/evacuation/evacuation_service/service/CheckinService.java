@@ -114,8 +114,7 @@ public class CheckinService {
     private SolicitudAsistencia enviarSolicitud(SolicitudAsistencia solicitud, RequesterIdentity requester,
             String correlationId) {
         try {
-            SolicitudAsistencia enviada = solicitudes.enviar(solicitud.getId(), requester.rolesComoCabecera(),
-                    correlationId).solicitud();
+            SolicitudAsistencia enviada = solicitudes.enviar(solicitud.getId(), requester, correlationId).solicitud();
             return enviada == null ? solicitud : enviada;
         } catch (RuntimeException e) {
             log.error("Falló el envío de la solicitud de asistencia {}; queda pendiente de envío: {}",

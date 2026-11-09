@@ -12,6 +12,9 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.audit.AuditAction;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.audit.AuditRecorder;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.audit.AuditResult;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.ResultadoEnvioMs05;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.SolicitudAsistenciaClient;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.Checkin;
@@ -19,6 +22,7 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.EstadoChec
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.EstadoEnvio;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.SolicitudAsistencia;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.SolicitudAsistenciaRepository;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.RequesterIdentity;
 
 /**
  * RF-MS04-04 Generar solicitud de asistencia en MS05 (Jira KAIR-575, historias KAIR-593 y KAIR-594).
@@ -34,13 +38,15 @@ public class SolicitudAsistenciaService {
 
     private final SolicitudAsistenciaRepository solicitudes;
     private final SolicitudAsistenciaClient ms05;
+    private final AuditRecorder auditoria;
     private final Clock clock;
     private final TransactionTemplate transaccion;
 
     public SolicitudAsistenciaService(SolicitudAsistenciaRepository solicitudes, SolicitudAsistenciaClient ms05,
-            Clock clock, PlatformTransactionManager transactionManager) {
+            AuditRecorder auditoria, Clock clock, PlatformTransactionManager transactionManager) {
         this.solicitudes = solicitudes;
         this.ms05 = ms05;
+        this.auditoria = auditoria;
         this.clock = clock;
         this.transaccion = new TransactionTemplate(transactionManager);
     }
@@ -76,13 +82,39 @@ public class SolicitudAsistenciaService {
      * intento y guarda el resultado: con el id de MS05 queda ENVIADA; si MS05 la rechaza por datos inválidos,
      * RECHAZADA (A4); si MS05 no responde, sigue PENDIENTE_ENVIO para el reenvío (A2)
      *
+     * Cada intento se audita en MS08 (acción SOLICITUD_ASISTENCIA, recurso el check-in que la originó): EXITO con
+     * ENVIADA, o FALLO con RECHAZADA o PENDIENTE_ENVIO. En el reenvío periódico no hay usuario en la petición y se
+     * audita como acción del sistema
+     *
      * @param solicitudId solicitud a enviar
-     * @param rolesUsuario roles del usuario para X-User-Role, o null en el reenvío periódico
-     * @param correlationId correlation id con el que se llama a MS05
+     * @param requester usuario del check-in, o null en el reenvío periódico
+     * @param correlationId correlation id con el que se llama a MS05 y se audita
      * @return la solicitud como quedó y el resultado del envío; el resultado es null si no se intentó porque ya no
      *         estaba pendiente o la tenía otro envío
      */
-    public EnvioSolicitud enviar(UUID solicitudId, String rolesUsuario, String correlationId) {
+    public EnvioSolicitud enviar(UUID solicitudId, RequesterIdentity requester, String correlationId) {
+        String rolesUsuario = requester == null ? null : requester.rolesComoCabecera();
+        EnvioSolicitud envio = intentarEnvio(solicitudId, rolesUsuario, correlationId);
+        if (envio.resultado() != null) {
+            auditar(envio, requester, correlationId);
+        }
+        return envio;
+    }
+
+    private void auditar(EnvioSolicitud envio, RequesterIdentity requester, String correlationId) {
+        boolean creada = envio.resultado().tipo() == ResultadoEnvioMs05.Tipo.CREADA;
+        AuditResult resultado = creada ? AuditResult.EXITO : AuditResult.FALLO;
+        String recurso = AuditRecorder.checkinResource(envio.solicitud().getCheckinId());
+        String detalle = envio.solicitud().getEstadoEnvio().name();
+        if (requester == null) {
+            auditoria.recordSystem(AuditAction.SOLICITUD_ASISTENCIA, resultado, recurso, detalle, correlationId);
+        } else {
+            auditoria.recordAs(AuditAction.SOLICITUD_ASISTENCIA, resultado, requester, recurso, detalle,
+                    correlationId);
+        }
+    }
+
+    private EnvioSolicitud intentarEnvio(UUID solicitudId, String rolesUsuario, String correlationId) {
         return transaccion.execute(status -> {
             Optional<SolicitudAsistencia> pendiente = solicitudes.tomarPendiente(solicitudId);
             if (pendiente.isEmpty()) {
