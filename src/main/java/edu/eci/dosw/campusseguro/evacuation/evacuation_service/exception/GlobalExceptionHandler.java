@@ -24,6 +24,7 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.ErrorResponse;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.ErrorResponse.ErrorDetail;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.EstadoCheckin;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.EstadoEvento;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.IdentityHeaders;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.util.CorrelationIds;
 import jakarta.servlet.http.HttpServletRequest;
@@ -39,6 +40,8 @@ public class GlobalExceptionHandler {
     public static final String REQUIRED_PARAMETER_MESSAGE = "El parámetro es obligatorio.";
     public static final String INVALID_PARAMETER_MESSAGE = ValidationErrors.INVALID_VALUE_MESSAGE;
     public static final String INVALID_CHECKIN_STATE_MESSAGE = "Estado no válido.";
+    /** Filtro de estado de la consulta de eventos (F-07) */
+    public static final String INVALID_EVENT_STATE_MESSAGE = "Estado de evento no válido.";
 
     /** Mensajes de los formularios (RG-03 y F-02) para los parámetros de ruta y de consulta con formato inválido */
     private static final Map<String, String> PARAMETER_MESSAGES = Map.of(
@@ -120,6 +123,8 @@ public class GlobalExceptionHandler {
         String mensaje = PARAMETER_MESSAGES.getOrDefault(ex.getName(), INVALID_PARAMETER_MESSAGE);
         if (ex.getRequiredType() == EstadoCheckin.class) {
             mensaje = INVALID_CHECKIN_STATE_MESSAGE;
+        } else if (ex.getRequiredType() == EstadoEvento.class) {
+            mensaje = INVALID_EVENT_STATE_MESSAGE;
         }
         return build(ErrorCode.VALIDATION, ValidationErrors.INVALID_DATA_MESSAGE,
                 List.of(new ErrorDetail(ex.getName(), mensaje)), request, HttpHeaders.EMPTY);

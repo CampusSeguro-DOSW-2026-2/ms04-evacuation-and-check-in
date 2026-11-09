@@ -64,6 +64,24 @@ public interface EventoRepository extends JpaRepository<Evento, UUID> {
     @Query("select e from Evento e where e.id = :id")
     Optional<Evento> buscarParaCheckin(@Param("id") UUID id);
 
+    /** Filtro opcional por estado de la consulta de eventos */
+    String FILTRO_CONSULTA = "(CAST(:estado AS VARCHAR(12)) IS NULL OR estado = CAST(:estado AS VARCHAR(12))) ";
+
+    /**
+     * Eventos en cualquier estado, con filtro opcional por estado (RF-MS04-13): por fecha de inicio del más
+     * reciente al más antiguo, con los BORRADOR (sin fecha) al final, y luego por {@code creado_en} descendente. El
+     * id desempata para que la paginación sea estable
+     *
+     * @param estado código del estado a filtrar, null para todos
+     * @param pageable página pedida, sin orden: el orden lo fija la consulta
+     * @return la página de eventos
+     */
+    @Query(value = "SELECT * FROM eventos WHERE " + FILTRO_CONSULTA
+            + "ORDER BY fecha_inicio DESC NULLS LAST, creado_en DESC, id",
+            countQuery = "SELECT COUNT(*) FROM eventos WHERE " + FILTRO_CONSULTA,
+            nativeQuery = true)
+    Page<Evento> consultar(@Param("estado") String estado, Pageable pageable);
+
     /**
      * Eventos de un estado, con paginación (RF-MS04-13)
      *

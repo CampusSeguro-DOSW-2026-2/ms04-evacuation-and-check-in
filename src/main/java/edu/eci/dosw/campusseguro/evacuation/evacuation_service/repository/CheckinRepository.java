@@ -224,8 +224,7 @@ public interface CheckinRepository extends Repository<Checkin, UUID> {
     }
 
     /**
-     * Personas cuyo estado vigente es Requiero asistencia, del reporte más antiguo al más reciente (RF-MS04-08).
-     * El orden lo fija la consulta, y el número del check-in desempata dos reportes con la misma fecha
+     * Personas cuyo estado vigente es Requiero asistencia, del reporte más antiguo al más reciente (RF-MS04-08)
      *
      * @param eventoId evento
      * @param restringido true para listar solo las personas que el BRIGADISTA puede ver en sus zonas
@@ -260,6 +259,29 @@ public interface CheckinRepository extends Repository<Checkin, UUID> {
         return buscarVigentesConAsistencia(eventoId, restringido, arreglo(puntos), arreglo(edificios),
                 arreglo(espacios), pageable);
     }
+
+    /**
+     * Filtro del detalle para MS06: evento y estado vigente opcional
+     */
+    String FILTRO_DETALLE_MS06 = "evento_id = :eventoId "
+            + "AND (CAST(:estado AS VARCHAR(20)) IS NULL OR estado = CAST(:estado AS VARCHAR(20))) ";
+
+    /**
+     * Estados vigentes de un evento para MS06 (RF-MS04-12), filtrados por estado, del check-in más antiguo al más
+     * reciente. Un elemento por persona: la vista ya deja solo su check-in más reciente. El total de la página
+     * cuenta las personas del filtro
+     *
+     * @param eventoId evento
+     * @param estado código del estado a filtrar, null para todos
+     * @param pageable página pedida, sin orden: el orden lo fija la consulta
+     * @return la página de check-ins vigentes
+     */
+    @Query(value = "SELECT * FROM v_checkins_vigentes WHERE " + FILTRO_DETALLE_MS06
+            + "ORDER BY registrado_en, numero",
+            countQuery = "SELECT COUNT(*) FROM v_checkins_vigentes WHERE " + FILTRO_DETALLE_MS06,
+            nativeQuery = true)
+    Page<Checkin> buscarVigentesParaMs06(@Param("eventoId") UUID eventoId, @Param("estado") String estado,
+            Pageable pageable);
 
     /**
      * Convierte los ids al formato de arreglo de PostgreSQL que reciben las consultas
