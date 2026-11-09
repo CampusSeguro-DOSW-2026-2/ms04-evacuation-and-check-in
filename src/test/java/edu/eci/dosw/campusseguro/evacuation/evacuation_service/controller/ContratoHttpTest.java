@@ -441,29 +441,19 @@ class ContratoHttpTest {
                 .andExpect(status().isCreated());
     }
 
+    /**
+     * El cuerpo de F-05 lo valida el service, para que cada intento fallido quede auditado (RF-MS04-11, A1): un
+     * cuerpo incompleto o con valores fuera del catálogo llega al service. Los mensajes se prueban en
+     * EstadoEventoIntegracionTest
+     */
     @Test
-    void elCuerpoDelEstadoSeValidaConLosMensajesDeF05() throws Exception {
+    void elCuerpoDelEstadoLoValidaElServiceParaAuditarlo() throws Exception {
         mockMvc.perform(comoMs06(put(BASE + "/" + EVENTO + "/estado")).contentType(MediaType.APPLICATION_JSON)
-                .content("{\"eventoId\":\"" + EVENTO + "\",\"nombre\":\"\",\"estado\":\"PROGRAMADO\","
-                        + "\"rolesConvocados\":[]}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.codigo").value("VALIDACION"))
-                .andExpect(jsonPath("$.errores[?(@.campo=='nombre')].mensaje")
-                        .value("El nombre del evento es obligatorio (1 a 150 caracteres)."))
-                .andExpect(jsonPath("$.errores[?(@.campo=='simulacro')].mensaje")
-                        .value("Indique si el evento es un simulacro."))
-                .andExpect(jsonPath("$.errores[?(@.campo=='rolesConvocados')].mensaje")
-                        .value("Indique al menos un rol convocado."));
+                .content("{\"eventoId\":\"" + EVENTO + "\",\"nombre\":\"\",\"estado\":\"CANCELADO\","
+                        + "\"fechaInicio\":\"2026-11-20T10:00:00\",\"rolesConvocados\":[]}"))
+                .andExpect(status().isOk());
 
-        verifyNoInteractions(estadoEventoService);
-    }
-
-    @Test
-    void unaFechaDeInicioSinDesfaseHorarioEsValidacion() throws Exception {
-        mockMvc.perform(comoMs06(put(BASE + "/" + EVENTO + "/estado")).contentType(MediaType.APPLICATION_JSON)
-                .content(ESTADO_VALIDO.replace("2026-11-20T10:00:00-05:00", "2026-11-20T10:00:00")))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.errores[0].campo").value("fechaInicio"));
+        org.mockito.Mockito.verify(estadoEventoService).recibir(any(), any(), any(), any());
     }
 
     @Test

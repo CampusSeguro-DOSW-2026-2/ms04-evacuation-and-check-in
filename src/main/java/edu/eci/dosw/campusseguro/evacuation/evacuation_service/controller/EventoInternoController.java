@@ -26,7 +26,6 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.util.Paginacion;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.validation.Valid;
 
 /**
  * Rutas internas de MS06 (RN-MS04-23): RF-MS04-11 Recibir el estado del evento y RF-MS04-12 Entregar a MS06 el
@@ -55,7 +54,7 @@ public class EventoInternoController {
                     + "o cambiar simulacro, responde 409.")
     @PutMapping("/{eventoId}/estado")
     public ResponseEntity<EventoInterno> recibirEstado(@PathVariable UUID eventoId,
-            @Valid @RequestBody EstadoEventoRequest request,
+            @RequestBody EstadoEventoRequest request,
             @RequestHeader(IdentityHeaders.SERVICE_NAME) String servicio, HttpServletRequest http) {
         ResultadoEstadoEvento resultado = estadoEventoService.recibir(eventoId, request, servicio,
                 CorrelationIds.current(http));
