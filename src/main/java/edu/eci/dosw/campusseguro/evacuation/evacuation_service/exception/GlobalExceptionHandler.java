@@ -1,6 +1,7 @@
 package edu.eci.dosw.campusseguro.evacuation.evacuation_service.exception;
 
 import java.util.List;
+import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,6 +23,7 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.ErrorResponse;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.ErrorResponse.ErrorDetail;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.EstadoCheckin;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.IdentityHeaders;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.util.CorrelationIds;
 import jakarta.servlet.http.HttpServletRequest;
@@ -36,6 +38,14 @@ public class GlobalExceptionHandler {
 
     public static final String REQUIRED_PARAMETER_MESSAGE = "El parámetro es obligatorio.";
     public static final String INVALID_PARAMETER_MESSAGE = ValidationErrors.INVALID_VALUE_MESSAGE;
+    public static final String INVALID_CHECKIN_STATE_MESSAGE = "Estado no válido.";
+
+    /** Mensajes de los formularios (RG-03 y F-02) para los parámetros de ruta y de consulta con formato inválido */
+    private static final Map<String, String> PARAMETER_MESSAGES = Map.of(
+            "eventoId", "Evento no válido.",
+            "punto_encuentro_id", "Punto de encuentro no válido.",
+            "page", "Página no válida.",
+            "size", "Tamaño de página no válido (1 a 100).");
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
@@ -96,12 +106,23 @@ public class GlobalExceptionHandler {
                 HttpHeaders.EMPTY);
     }
 
-    /** Un parámetro de ruta o de consulta con formato inválido (p. ej. un eventoId que no es UUID) */
+    /**
+     * Un parámetro de ruta o de consulta con formato inválido (p. ej. un eventoId que no es UUID). Usa el mensaje
+     * del formulario cuando el parámetro lo define y, si no, el mensaje genérico
+     *
+     * @param ex error de conversión del parámetro
+     * @param request petición en curso
+     * @return 400 VALIDACION con el parámetro y su mensaje
+     */
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
     public ResponseEntity<ErrorResponse> handleTypeMismatch(MethodArgumentTypeMismatchException ex,
             HttpServletRequest request) {
+        String mensaje = PARAMETER_MESSAGES.getOrDefault(ex.getName(), INVALID_PARAMETER_MESSAGE);
+        if (ex.getRequiredType() == EstadoCheckin.class) {
+            mensaje = INVALID_CHECKIN_STATE_MESSAGE;
+        }
         return build(ErrorCode.VALIDATION, ValidationErrors.INVALID_DATA_MESSAGE,
-                List.of(new ErrorDetail(ex.getName(), INVALID_PARAMETER_MESSAGE)), request, HttpHeaders.EMPTY);
+                List.of(new ErrorDetail(ex.getName(), mensaje)), request, HttpHeaders.EMPTY);
     }
 
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
