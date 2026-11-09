@@ -22,7 +22,6 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.util.CorrelationI
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.validation.Valid;
 
 /**
  * RF-MS04-02 Registrar check-in y RF-MS04-03 Mantener y actualizar el estado vigente
@@ -46,7 +45,7 @@ public class CheckinController {
                     + "con 400.")
     @PostMapping("/{eventoId}/checkins")
     public ResponseEntity<CheckinResponse> registrar(@PathVariable UUID eventoId,
-            @Valid @RequestBody CheckinRequest request, RequesterIdentity requester,
+            @RequestBody CheckinRequest request, RequesterIdentity requester,
             HttpServletRequest http) {
         PermissionChecker.require(requester, Permiso.CHECKIN_WRITE);
         if (request.estado() == EstadoCheckin.NEEDS_ASSISTANCE) {

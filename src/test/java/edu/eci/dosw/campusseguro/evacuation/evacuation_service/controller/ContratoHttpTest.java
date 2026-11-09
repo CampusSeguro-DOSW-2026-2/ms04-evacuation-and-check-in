@@ -294,15 +294,23 @@ class ContratoHttpTest {
         verifyNoInteractions(checkinService);
     }
 
+    /**
+     * Las reglas del cuerpo del check-in las valida el service (para auditar cada intento fallido, RF-MS04-02 A1):
+     * un estado o un tipo de ubicación fuera del catálogo llega como null en lugar de cortar la petición aquí
+     */
     @Test
-    void elEstadoEsObligatorioYDebeSerDelCatalogo() throws Exception {
-        mockMvc.perform(comoEstudiante(post(BASE + "/" + EVENTO + "/checkins"), "{}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.errores[0].campo").value("estado"))
-                .andExpect(jsonPath("$.errores[0].mensaje").value("Seleccione un estado válido."));
-        mockMvc.perform(comoEstudiante(post(BASE + "/" + EVENTO + "/checkins"), "{\"estado\":\"OTRO\"}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.errores[0].campo").value("estado"));
+    void unEstadoOTipoFueraDelCatalogoLlegaAlServiceComoNulo() throws Exception {
+        mockMvc.perform(comoEstudiante(post(BASE + "/" + EVENTO + "/checkins"),
+                "{\"estado\":\"OTRO\",\"ubicacion\":{\"tipo\":\"OTRO\",\"id\":\"" + PUNTO + "\"}}"))
+                .andExpect(status().isCreated());
+
+        org.mockito.ArgumentCaptor<edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.CheckinRequest> cuerpo =
+                org.mockito.ArgumentCaptor.forClass(
+                        edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.CheckinRequest.class);
+        org.mockito.Mockito.verify(checkinService).registrar(any(), cuerpo.capture(), any(), any());
+        org.junit.jupiter.api.Assertions.assertNull(cuerpo.getValue().estado());
+        org.junit.jupiter.api.Assertions.assertNull(cuerpo.getValue().ubicacion().tipo());
+        assertEquals(PUNTO, cuerpo.getValue().ubicacion().id());
     }
 
     @Test
@@ -311,15 +319,6 @@ class ContratoHttpTest {
                 "{\"estado\":\"SAFE\",\"punto_encuentro_id\":\"3\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errores[0].campo").value("punto_encuentro_id"));
-    }
-
-    @Test
-    void laUbicacionExigeTipoEId() throws Exception {
-        mockMvc.perform(comoEstudiante(post(BASE + "/" + EVENTO + "/checkins"),
-                "{\"estado\":\"NEEDS_ASSISTANCE\",\"ubicacion\":{}}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.codigo").value("VALIDACION"))
-                .andExpect(jsonPath("$.errores", hasSize(2)));
     }
 
     @Test
