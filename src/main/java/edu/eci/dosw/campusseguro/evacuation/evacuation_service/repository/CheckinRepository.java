@@ -106,6 +106,16 @@ public interface CheckinRepository extends Repository<Checkin, UUID> {
             + "FROM checkins WHERE evento_id = :eventoId "
             + "GROUP BY usuario_id ORDER BY MIN(registrado_en), MIN(numero)", nativeQuery = true)
     List<PrimerCheckinPorUsuario> buscarPrimerosCheckins(@Param("eventoId") UUID eventoId);
+
+    /**
+     * Usuarios con estado vigente en el evento, es decir, con al menos un check-in (RF-MS04-07). La población
+     * objetivo menos estos usuarios son los pendientes
+     *
+     * @param eventoId evento
+     * @return los ids de los usuarios que ya reportaron alguno de los cuatro estados, sin repetidos
+     */
+    @Query(value = "SELECT usuario_id FROM v_checkins_vigentes WHERE evento_id = :eventoId", nativeQuery = true)
+    List<UUID> buscarUsuariosConEstadoVigente(@Param("eventoId") UUID eventoId);
     
     /**
      * Condición que deja solo los check-ins vigentes que el BRIGADISTA puede ver (RN-MS04-14): SAFE en un punto de

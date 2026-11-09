@@ -104,6 +104,20 @@ public class Evento {
         return estado == EstadoEvento.EN_EJECUCION;
     }
 
+    /**
+     * Corte de creación de la población objetivo (RN-MS04-15): los usuarios creados antes del inicio del evento, o
+     * antes del momento de la consulta si es anterior o si el evento aún no tiene fecha de inicio
+     *
+     * @param ahora momento de la consulta
+     * @return el instante hasta el que cuentan los usuarios creados
+     */
+    public Instant corteDePoblacion(Instant ahora) {
+        if (fechaInicio == null || ahora.isBefore(fechaInicio)) {
+            return ahora;
+        }
+        return fechaInicio;
+    }
+
     public UUID getId() {
         return id;
     }
