@@ -1,0 +1,12 @@
+{
+  "name": "MS02: cualquier consulta GET responde un punto de encuentro ACTIVO con el id pedido (contrato pendiente, decisión abierta n.º 3)",
+  "priority": 10,
+  "request": { "method": "GET", "urlPathPattern": "/api/v1/.*" },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "body": "{\"id\":\"{{regexExtract request.path '[^/]+$'}}\",\"estado\":\"ACTIVO\"}",
+    "transformers": ["response-template"],
+    "delayDistribution": { "type": "uniform", "lower": 20, "upper": 120 }
+  }
+}

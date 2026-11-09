@@ -1,0 +1,5 @@
+{
+  "name": "MS08: recibe los eventos de auditoría (Estándares, sección 12)",
+  "request": { "method": "POST", "urlPath": "/api/v1/audit/events" },
+  "response": { "status": 202 }
+}

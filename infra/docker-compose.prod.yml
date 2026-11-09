@@ -1,0 +1,59 @@
+# Stack de MS04 en la nube: uno por entorno en la misma VM (ms04-prod y ms04-test), cada uno con su BD.
+# No publica puertos: solo el Caddy de borde de la VM (red campus-edge) llega a MS04, con el alias ms04-<entorno>,
+# y la BD solo es visible dentro del stack. Lo usa infra/deploy.sh con el .env que escribe en DEPLOY_DIR/<entorno>;
+# no se ejecuta a mano.
+name: ms04-${ENTORNO:?ENTORNO es obligatoria (test o prod)}
+
+services:
+  db:
+    image: postgres:17.6-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ms04_db
+      POSTGRES_USER: ms04_user
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD es obligatoria}
+    volumes:
+      - datos:/var/lib/postgresql/data
+      # Esquema inicial (database/*.sql): Postgres solo lo ejecuta la primera vez, con el volumen vacío.
+      - ./database:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ms04_user -d ms04_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    networks:
+      - interna
+
+  ms04:
+    image: ${IMAGE:?IMAGE es obligatoria}:${TAG:?TAG es obligatoria (sha-xxxxxxx)}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:postgresql://db:5432/ms04_db
+      DB_USERNAME: ms04_user
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD es obligatoria}
+      SERVER_PORT: "8084"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      GATEWAY_URL: ${GATEWAY_URL:?GATEWAY_URL es obligatoria (https://<dominio del GW> o :8443)}
+      GATEWAY_SERVICE_KEY: ${GATEWAY_SERVICE_KEY:?GATEWAY_SERVICE_KEY es obligatoria}
+      SWAGGER_ENABLED: "false"
+    # Variables opcionales del entorno (p. ej. INTERNAL_ALLOWED_SERVICES, MS05_SOLICITUDES_PATH), si las hay.
+    env_file:
+      - path: extra.env
+        required: false
+    networks:
+      interna:
+      edge:
+        aliases:
+          - ms04-${ENTORNO}
+
+volumes:
+  datos:
+
+networks:
+  interna:
+  edge:
+    name: campus-edge
+    external: true

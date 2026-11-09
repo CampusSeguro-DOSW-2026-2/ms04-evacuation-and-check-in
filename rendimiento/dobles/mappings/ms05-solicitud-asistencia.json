@@ -1,0 +1,12 @@
+{
+  "name": "MS05: cualquier POST crea la solicitud de asistencia en estado Reportada (contrato pendiente, decisión abierta n.º 4)",
+  "priority": 10,
+  "request": { "method": "POST", "urlPathPattern": "/api/v1/.*" },
+  "response": {
+    "status": 201,
+    "headers": { "Content-Type": "application/json" },
+    "body": "{\"id\":\"SOL-{{randomValue length=10 type='ALPHANUMERIC'}}\",\"estado\":\"REPORTADA\"}",
+    "transformers": ["response-template"],
+    "delayDistribution": { "type": "uniform", "lower": 20, "upper": 120 }
+  }
+}
