@@ -47,6 +47,7 @@ public class GlobalExceptionHandler {
     private static final Map<String, String> PARAMETER_MESSAGES = Map.of(
             "eventoId", "Evento no válido.",
             "punto_encuentro_id", "Punto de encuentro no válido.",
+            "usuario_id", "Usuario no válido.",
             "page", "Página no válida.",
             "size", "Tamaño de página no válido (1 a 100).");
 

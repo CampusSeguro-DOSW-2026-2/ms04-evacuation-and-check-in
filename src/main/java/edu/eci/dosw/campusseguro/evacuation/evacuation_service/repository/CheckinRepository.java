@@ -284,6 +284,50 @@ public interface CheckinRepository extends Repository<Checkin, UUID> {
             Pageable pageable);
 
     /**
+     * Filtro del histórico: evento, y usuario y estado opcionales
+     */
+    String FILTRO_HISTORIAL = "evento_id = :eventoId "
+            + "AND (CAST(:usuarioId AS UUID) IS NULL OR usuario_id = CAST(:usuarioId AS UUID)) "
+            + "AND (CAST(:estado AS VARCHAR(20)) IS NULL OR estado = CAST(:estado AS VARCHAR(20))) ";
+
+    /**
+     * Todos los check-ins del evento, del reporte más antiguo al más reciente (RF-MS04-09)
+     *
+     * @param eventoId evento
+     * @param usuarioId usuario a filtrar como texto UUID, null para todos
+     * @param estado código del estado a filtrar, null para todos
+     * @param pageable página pedida, sin orden: el orden lo fija la consulta
+     * @return la página de check-ins del evento
+     */
+    @Query(value = "SELECT * FROM checkins WHERE " + FILTRO_HISTORIAL + "ORDER BY registrado_en, numero",
+            countQuery = "SELECT COUNT(*) FROM checkins WHERE " + FILTRO_HISTORIAL,
+            nativeQuery = true)
+    Page<Checkin> buscarHistorial(@Param("eventoId") UUID eventoId, @Param("usuarioId") String usuarioId,
+            @Param("estado") String estado, Pageable pageable);
+
+    /**
+     * Todos los check-ins del evento filtrados por usuario y estado, del reporte más antiguo al más reciente
+     * (RF-MS04-09)
+     *
+     * @param eventoId evento
+     * @param usuarioId usuario a filtrar, null para todos
+     * @param estado estado a filtrar, null para todos
+     * @param pageable página pedida
+     * @return la página de check-ins del evento
+     */
+    default Page<Checkin> buscarHistorial(UUID eventoId, UUID usuarioId, EstadoCheckin estado, Pageable pageable) {
+        String usuarioFiltro = null;
+        if (usuarioId != null) {
+            usuarioFiltro = usuarioId.toString();
+        }
+        String estadoFiltro = null;
+        if (estado != null) {
+            estadoFiltro = estado.name();
+        }
+        return buscarHistorial(eventoId, usuarioFiltro, estadoFiltro, pageable);
+    }
+
+    /**
      * Convierte los ids al formato de arreglo de PostgreSQL que reciben las consultas
      *
      * @param ids ids de MS02, pueden ser ninguno
