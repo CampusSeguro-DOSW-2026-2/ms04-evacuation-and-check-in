@@ -73,6 +73,11 @@ clients:
     # endpoint (decisión abierta n.º 3 de los Estándares); se ajusta aquí cuando se acuerde el contrato
     solicitudes-path: ${MS05_SOLICITUDES_PATH:/api/v1/internal/solicitudes-asistencia}
 
+# Tarea periódica que reenvía a MS05 las solicitudes de asistencia PENDIENTE_ENVIO (RN-MS04-12)
+solicitudes-asistencia:
+  # Milisegundos entre el fin de un reenvío y el inicio del siguiente; el primero se hace al pasar ese tiempo
+  reenvio-ms: ${MS04_REENVIO_SOLICITUDES_MS:30000}
+
 # Servicios que pueden usar las rutas internas de MS04, separados por coma (RN-MS04-23).
 # El Gateway inyecta X-Service-Name como ms01 ... ms08 a partir de la clave de servicio.
 internal:

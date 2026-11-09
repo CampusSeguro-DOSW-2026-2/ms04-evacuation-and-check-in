@@ -18,7 +18,6 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.Checkin;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.EstadoCheckin;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.EstadoEnvio;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.SolicitudAsistencia;
-import edu.eci.dosw.campusseguro.evacuation.evacuation_service.exception.ApiException;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.SolicitudAsistenciaRepository;
 
 /**
@@ -124,13 +123,26 @@ public class SolicitudAsistenciaService {
     }
 
     /**
-     * Reenvía a MS05 las solicitudes PENDIENTE_ENVIO, sin duplicarlas: el id de la solicitud viaja como llave de
-     * idempotencia (RN-MS04-12). La frecuencia de la tarea que lo llama se configura por variable de entorno
+     * Reenvía a MS05 las solicitudes PENDIENTE_ENVIO, de la más antigua a la más reciente, sin duplicarlas: cada una
+     * se toma con bloqueo antes de enviarla y su id viaja como llave de idempotencia (RN-MS04-12). No hay usuario en
+     * la petición, así que se propaga solo X-User-Id (el de la solicitud) y cada envío lleva un Correlation ID nuevo.
+     * Una falla con una solicitud no detiene las demás
      *
-     * @return cuántas solicitudes se enviaron
+     * @return cuántas solicitudes quedaron ENVIADA
      */
     public int reenviarPendientes() {
-        throw ApiException.noImplementado("RF-MS04-04 reenviar las solicitudes pendientes");
+        int enviadas = 0;
+        for (UUID id : solicitudes.idsPorEstadoEnvio(EstadoEnvio.PENDIENTE_ENVIO)) {
+            try {
+                EnvioSolicitud envio = enviar(id, null, UUID.randomUUID().toString());
+                if (envio.resultado() != null && envio.resultado().tipo() == ResultadoEnvioMs05.Tipo.CREADA) {
+                    enviadas++;
+                }
+            } catch (RuntimeException e) {
+                log.error("Falló el reenvío de la solicitud de asistencia {}: {}", id, e.toString());
+            }
+        }
+        return enviadas;
     }
 
     /**
