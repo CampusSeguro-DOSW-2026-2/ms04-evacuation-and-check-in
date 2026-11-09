@@ -25,9 +25,9 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.util.Json;
 
 /**
  * Cliente de MS05 para crear la solicitud de asistencia de un check-in Requiero asistencia (RF-MS04-04, paso 3).
- * Llama por el API Gateway con la clave de servicio de MS04, el Correlation ID y la identidad del usuario propagada
- * (Estándares, sección 5). Timeout de cliente de 2000 ms y sin reintentos: los reintentos los hace el reenvío
- * periódico.
+ * Llama por el API Gateway con la clave de servicio de MS04, el Correlation ID y, cuando la llamada nace del check-in
+ * del usuario, su identidad propagada (Estándares, sección 5). Timeout de cliente de 2000 ms y sin reintentos: los
+ * reintentos los hace el reenvío periódico, que no propaga identidad.
  *
  * CONTRATO PROVISIONAL: MS05 todavía no publica el endpoint para las solicitudes que vienen de MS04 (decisión abierta
  * n.º 3 de los Estándares y n.º 4 de los requerimientos de MS04). La ruta se configura con MS05_SOLICITUDES_PATH; el
@@ -88,8 +88,10 @@ public class Ms05SolicitudAsistenciaClient implements SolicitudAsistenciaClient 
                         if (correlationId != null) {
                             headers.set(CorrelationIds.HEADER, correlationId);
                         }
-                        headers.set(IdentityHeaders.USER_ID, solicitud.getUsuarioId().toString());
+                        // El Gateway exige X-User-Id y X-User-Role juntos o ninguno (RF-GW-08, A3): sin roles
+                        // (reenvío periódico) la llamada no actúa en nombre del usuario; su id va en el cuerpo
                         if (rolesUsuario != null && !rolesUsuario.isBlank()) {
+                            headers.set(IdentityHeaders.USER_ID, solicitud.getUsuarioId().toString());
                             headers.set(IdentityHeaders.USER_ROLE, rolesUsuario);
                         }
                     })

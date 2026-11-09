@@ -311,7 +311,7 @@ class SolicitudAsistenciaIntegracionTest {
         }
 
         @Test
-        void elReenvioPropagaElUsuarioPeroNoRolesYUsaUnCorrelationIdNuevo() throws Exception {
+        void elReenvioNoPropagaIdentidadYUsaUnCorrelationIdNuevo() throws Exception {
             Evento evento = enEjecucion();
             when(ms05.enviar(any(), any(), any())).thenReturn(ResultadoEnvioMs05.noDisponible("caído"));
             reportar(evento.getId(), asistencia("EDIFICIO", EDIFICIO));

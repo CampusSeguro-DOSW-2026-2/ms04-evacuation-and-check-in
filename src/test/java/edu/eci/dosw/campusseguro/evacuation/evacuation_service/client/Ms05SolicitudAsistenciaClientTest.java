@@ -143,14 +143,23 @@ class Ms05SolicitudAsistenciaClientTest {
         assertEquals("application/json", h.getFirst("Content-Type"));
     }
 
+    /**
+     * El Gateway responde 400 si llega X-User-Id sin X-User-Role (RF-GW-08, A3): sin roles no se envía ninguna de
+     * las dos, y el usuario sigue yendo en el cuerpo
+     */
     @Test
-    void sinRolesConocidosNoEnviaXUserRole() throws Exception {
-        responder(200, "{\"id\":\"SOL-123\"}");
+    void sinRolesNoPropagaIdentidadParaQueElGatewayNoLaRechace() throws Exception {
+        for (String sinRoles : new String[] { null, "", "  " }) {
+            responder(200, "{\"id\":\"SOL-123\"}");
 
-        cliente(2000).enviar(solicitud(), null, "corr-1");
+            assertEquals(Tipo.CREADA, cliente(2000).enviar(solicitud(), sinRoles, "corr-1").tipo());
 
-        assertNull(cabeceras.get().getFirst("X-User-Role"));
-        assertEquals(USUARIO.toString(), cabeceras.get().getFirst("X-User-Id"));
+            assertNull(cabeceras.get().getFirst("X-User-Role"));
+            assertNull(cabeceras.get().getFirst("X-User-Id"));
+            assertEquals("clave-ms04", cabeceras.get().getFirst("X-Service-Key"));
+            JsonNode cuerpo = JsonMapper.builder().build().readTree(cuerpoRecibido.get());
+            assertEquals(USUARIO.toString(), cuerpo.get("usuarioId").asString());
+        }
     }
 
     @Test

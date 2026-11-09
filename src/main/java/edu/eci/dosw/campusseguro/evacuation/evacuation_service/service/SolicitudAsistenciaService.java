@@ -157,8 +157,8 @@ public class SolicitudAsistenciaService {
     /**
      * Reenvía a MS05 las solicitudes PENDIENTE_ENVIO, de la más antigua a la más reciente, sin duplicarlas: cada una
      * se toma con bloqueo antes de enviarla y su id viaja como llave de idempotencia (RN-MS04-12). No hay usuario en
-     * la petición, así que se propaga solo X-User-Id (el de la solicitud) y cada envío lleva un Correlation ID nuevo.
-     * Una falla con una solicitud no detiene las demás
+     * la petición, así que no se propaga identidad (el usuario va en el cuerpo) y cada envío lleva un Correlation ID
+     * nuevo. Una falla con una solicitud no detiene las demás
      *
      * @return cuántas solicitudes quedaron ENVIADA
      */
