@@ -68,6 +68,10 @@ clients:
   ms02:
     # Zona segura (punto de encuentro) por id; responde id, codigo, nombre y estado (ACTIVO o INACTIVO)
     safe-zones-path: ${MS02_SAFE_ZONES_PATH:/api/v1/safe-zones/{id}}
+  ms05:
+    # Ruta interna para crear la solicitud de asistencia (RF-MS04-04). PROVISIONAL: MS05 aún no publica este
+    # endpoint (decisión abierta n.º 3 de los Estándares); se ajusta aquí cuando se acuerde el contrato
+    solicitudes-path: ${MS05_SOLICITUDES_PATH:/api/v1/internal/solicitudes-asistencia}
 
 # Servicios que pueden usar las rutas internas de MS04, separados por coma (RN-MS04-23).
 # El Gateway inyecta X-Service-Name como ms01 ... ms08 a partir de la clave de servicio.
