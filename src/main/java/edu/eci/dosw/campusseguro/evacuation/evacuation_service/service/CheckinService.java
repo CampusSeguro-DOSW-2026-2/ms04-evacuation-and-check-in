@@ -101,7 +101,27 @@ public class CheckinService {
             throw e;
         }
         auditarExito(registro, requester, correlationId);
-        return new ResultadoCheckin(aRespuesta(registro.checkin(), registro.solicitud()), registro.creado());
+        SolicitudAsistencia solicitud = registro.solicitudNueva()
+                ? enviarSolicitud(registro.solicitud(), requester, correlationId)
+                : registro.solicitud();
+        return new ResultadoCheckin(aRespuesta(registro.checkin(), solicitud), registro.creado());
+    }
+
+    /**
+     * Envía a MS05 la solicitud recién creada, ya confirmado el check-in (RF-MS04-04). Un error aquí no deshace ni
+     * rechaza el check-in: la solicitud sigue PENDIENTE_ENVIO y la toma el reenvío periódico (RN-MS04-12)
+     */
+    private SolicitudAsistencia enviarSolicitud(SolicitudAsistencia solicitud, RequesterIdentity requester,
+            String correlationId) {
+        try {
+            SolicitudAsistencia enviada = solicitudes.enviar(solicitud.getId(), requester.rolesComoCabecera(),
+                    correlationId).solicitud();
+            return enviada == null ? solicitud : enviada;
+        } catch (RuntimeException e) {
+            log.error("Falló el envío de la solicitud de asistencia {}; queda pendiente de envío: {}",
+                    solicitud.getId(), e.toString());
+            return solicitud;
+        }
     }
 
     /**
