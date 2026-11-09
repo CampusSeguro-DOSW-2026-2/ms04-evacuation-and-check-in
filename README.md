@@ -84,11 +84,11 @@ pisen entre sí: al implementar, se completa el service y se reemplaza su `ApiEx
 | RF-MS04-02 y RF-MS04-03 Registrar y actualizar el check-in (KAIR-573, KAIR-574) | `CheckinController` | `CheckinService` | Implementado |
 | RF-MS04-04 Solicitud de asistencia a MS05 (KAIR-575) | no tiene (lo llama `CheckinService`) | `SolicitudAsistenciaService` | Pendiente |
 | RF-MS04-05 Consultar el propio estado (KAIR-576) | `EstadoPropioController` | `EstadoPropioService` | Implementado |
-| RF-MS04-06, 07 y 08 Dashboard (KAIR-577, KAIR-578, KAIR-579) | `DashboardController` | `DashboardService` | RF-06 implementado; 07 y 08 pendientes |
+| RF-MS04-06, 07 y 08 Dashboard (KAIR-577, KAIR-578, KAIR-579) | `DashboardController` | `DashboardService` | RF-06 y 07 implementados; 08 pendiente |
 | RF-MS04-09 Histórico (KAIR-580) | `HistorialController` | `HistorialService` | Pendiente |
 | RF-MS04-10 Resultados (KAIR-583) | `ResultadosController` | `ResultadosService` | Implementado |
 | RF-MS04-11 Recibir el estado del evento (KAIR-571) | `EventoInternoController` | `EstadoEventoService` | Implementado |
-| RF-MS04-12 Detalle de check-ins para MS06 (KAIR-581) | `EventoInternoController` | `DetalleCheckinsService` | Pendiente |
+| RF-MS04-12 Detalle de check-ins para MS06 (KAIR-581) | `EventoInternoController` | `DetalleCheckinsService` | Implementado |
 | RF-MS04-13 Consultar eventos (KAIR-582) | `ConsultaEventoController` | `ConsultaEventoService` | Pendiente |
 
 Piezas compartidas ya hechas, que no hay que volver a escribir:
@@ -114,7 +114,7 @@ a RNF-MS04-07 (historia KAIR-606). Al implementar una feature, actualice su colu
 
 | Verificación | Cómo | Estado |
 |---|---|---|
-| Criterios de RF-MS04-01 a 13 | `mvn verify` | 7 de 13 implementados (01, 02, 03, 05, 06, 10 y 11) |
+| Criterios de RF-MS04-01 a 13 | `mvn verify` | 9 de 13 implementados (01, 02, 03, 05, 06, 07, 10, 11 y 12); faltan 04, 08, 09 y 13 |
 | RNF-MS04-01, 02, 04 y 06 | `mvn verify -Prendimiento` y k6 ([`rendimiento/`](rendimiento/README.md)) | Listas para ejecutar (ya están RF-02/03, 06 y 11) |
 | RNF-MS04-03 (MS05 caído no impide el check-in) | Pruebas de RF-MS04-04 | Pendiente |
 | RNF-MS04-05 (sin escrituras en un evento finalizado) | Pruebas de RF-MS04-02/03 y 11 | Pendiente |
