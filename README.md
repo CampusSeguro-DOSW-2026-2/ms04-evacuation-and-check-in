@@ -65,12 +65,81 @@ mvn verify
 Necesita **Docker en ejecución**: las pruebas de acceso a datos y la de la aplicación completa levantan un PostgreSQL
 real con Testcontainers y le aplican los scripts de `database/`. Genera la cobertura en
 `target/site/jacoco/jacoco.xml`. El pipeline (`.github/workflows/ci.yml`) hace lo mismo, analiza con SonarCloud
-cuando existe el secreto `SONAR_TOKEN` y construye la imagen Docker.
+cuando existe el secreto `SONAR_TOKEN` y construye la imagen Docker (ver [CI/CD](#cicd)).
 
 Las pruebas de rendimiento y concurrencia (RNF-MS04-01, 02, 04 y 06) no corren con `mvn verify` porque lanzan 500
 hilos: se ejecutan con `mvn verify -Prendimiento`. La prueba de carga HTTP con k6 y el protocolo de la prueba de
 usabilidad (RNF-MS04-07) están en [`rendimiento/`](rendimiento/README.md). Las peticiones de más de 5 s quedan en el
 log como `Petición lenta` con su Correlation ID (umbral en `RENDIMIENTO_UMBRAL_LENTO_MS`).
+
+## CI/CD
+
+| Workflow | Cuándo | Qué hace |
+|---|---|---|
+| `ci.yml` | Cada push y PR | Compila y prueba (`mvn verify`), y analiza en SonarCloud si existe `SONAR_TOKEN`. Construye la imagen. Desde `develop` y `main` la publica en `ghcr.io/campusseguro-dosw-2026-2/ms04-evacuation-and-check-in` con `:develop` o `:latest` y `:sha-xxxxxxx`. |
+| `ci.yml` → `deploy.yml` | Push a `develop` | Despliega esa imagen en el entorno de **prueba** (`:8443`). |
+| `deploy-prod.yml` | A mano, desde `main` | Despliega en **producción** (`:443`) una imagen `sha-xxxxxxx` que ya pasó por prueba, sin reconstruirla. Otro tag anterior es el rollback. |
+
+## Despliegue en la nube (prueba y producción)
+
+MS04 corre en su propia VM, detrás del API Gateway. La guía completa, con los valores del GW, es
+[Conexión al API Gateway](https://github.com/CampusSeguro-DOSW-2026-2/documentation/wiki/Conexi%C3%B3n-al-API-Gateway)
+de la wiki:
+* El firewall solo acepta la IP del GW en `443` (producción) y `8443` (prueba), y la IP de quien administra en `22`.
+* Un Caddy de borde exige el certificado de cliente del GW (mTLS).
+* Prueba y producción comparten la VM, cada una con su stack (MS04 + PostgreSQL) y sus secretos.
+
+Los pasos 1 a 3 se hacen una sola vez. Los comandos marcados *(VM)* van en la VM por SSH; los demás, en su PC.
+
+### 1. Borde Caddy (mTLS) *(VM)*
+Con la carpeta `certs/` que entrega el equipo del GW (`prod/` y `test/`, cada una con `servidor.crt`,
+`servidor.key` y `ca.pem`; nunca va al repositorio):
+```bash
+curl -fsSL https://get.docker.com | sudo sh && sudo usermod -aG docker "$USER"   # una vez; salga y vuelva a entrar
+mkdir -p ~/campusseguro/edge && cd ~/campusseguro/edge
+curl -fsSLO https://raw.githubusercontent.com/CampusSeguro-DOSW-2026-2/api-gateway/develop/infra/caddy/Caddyfile.microservicio
+curl -fsSLO https://raw.githubusercontent.com/CampusSeguro-DOSW-2026-2/api-gateway/develop/infra/caddy/docker-compose.microservicio.yml
+printf 'UPSTREAM_PROD=ms04-prod:8084\nUPSTREAM_TEST=ms04-test:8084\n' > .env
+# copie aquí la carpeta certs/ (desde su PC: scp -i <llave>.pem -r certs ubuntu@<IP de la VM>:~/campusseguro/edge/)
+chmod 600 certs/*/servidor.key
+docker compose -f docker-compose.microservicio.yml up -d
+```
+
+### 2. Runner self-hosted
+1. En GitHub: **Settings › Actions › Runners › New self-hosted runner** (Linux, x64). Ejecute en la VM los comandos
+   de *Download* y configúrelo con la etiqueta `ms04` *(VM)*:
+   ```bash
+   ./config.sh --url https://github.com/CampusSeguro-DOSW-2026-2/ms04-evacuation-and-check-in --token <TOKEN> --labels ms04 --unattended
+   sudo ./svc.sh install "$USER" && sudo ./svc.sh start
+   ```
+2. El repositorio es público: en **Settings › Actions › General › Fork pull request workflows from outside
+   collaborators**, elija **Require approval for all external contributors**.
+
+### 3. Environments de GitHub
+Cree `ms04-test` (**Deployment branches**: solo `develop`) y `ms04-prod` (**Required reviewers** y
+**Deployment branches**: solo `main`) en **Settings › Environments**:
+
+| En `ms04-test` y `ms04-prod` | Tipo | Valor |
+|---|---|---|
+| `GATEWAY_URL` | Variable | Prueba: `https://campusseguro-gw.northcentralus.cloudapp.azure.com:8443`. Producción: `https://campusseguro-gw.northcentralus.cloudapp.azure.com`. |
+| `MS04_EXTRA_ENV` | Variable (opcional) | Líneas `CLAVE=valor` extra, p. ej. `INTERNAL_ALLOWED_SERVICES=ms06` o `MS05_SOLICITUDES_PATH=...`. |
+| `LOG_LEVEL`, `DEPLOY_DIR` | Variable (opcional) | `INFO` y `~/campusseguro/ms04` por defecto. |
+| `DB_PASSWORD` | Secreto | `openssl rand -base64 24`, distinta por entorno. Solo se aplica cuando se crea la BD (primer despliegue). |
+| `GATEWAY_SERVICE_KEY` | Secreto | La que entregó el equipo del GW para ese entorno (`GW_SERVICE_KEY_MS04` del GW). |
+
+Ningún valor puede contener comillas simples (`'`).
+
+### 4. Desplegar
+1. **Prueba:** cada merge o push a `develop` publica la imagen y la despliega en `ms04-test` (job
+   **desplegar-test** en *Actions*).
+2. **Producción:** después de mezclar en `main`, **Actions › Desplegar a producción › Run workflow**, rama `main`,
+   con el tag que ya funciona en prueba (`sha-` + 7 caracteres del commit de `develop`, en el log de
+   *desplegar-test*), y apruebe el despliegue.
+
+`infra/deploy.sh` verifica cada despliegue dentro de la VM: `/actuator/health` responde 200 por la red
+`campus-edge` y el borde rechaza conexiones sin el certificado del GW. Si algo falla, el log del job muestra las
+últimas líneas de MS04. Operación *(VM)*: `cd ~/campusseguro/ms04/test && docker compose ps && docker compose logs
+--tail=100 ms04` (nunca `down -v`: borra la BD).
 
 ## Estructura y dónde va cada feature
 

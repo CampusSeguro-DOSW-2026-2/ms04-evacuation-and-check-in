@@ -37,3 +37,8 @@ build/
 
 ### Secretos y variables locales ###
 .env
+# Certificados y llaves del despliegue: viven solo en la VM o en GitHub Secrets
+*.pem
+*.key
+*.crt
+certs/

@@ -1,0 +1,50 @@
+name: Desplegar
+
+# Workflow reutilizable: despliega una imagen ya publicada en la VM de MS04, con el runner self-hosted de etiqueta
+# "ms04" y las variables y secretos del Environment ms04-<entorno>. Lo llaman ci.yml (test) y deploy-prod.yml.
+on:
+  workflow_call:
+    inputs:
+      entorno:
+        description: test o prod
+        type: string
+        required: true
+      ref:
+        description: Commit del que se toman los archivos de infra/ y database/
+        type: string
+        required: true
+      tag:
+        description: Imagen a desplegar (sha-xxxxxxx). Vacía = la del commit de ref.
+        type: string
+        required: false
+        default: ''
+
+jobs:
+  desplegar:
+    runs-on: [self-hosted, ms04]
+    environment: ms04-${{ inputs.entorno }}
+    timeout-minutes: 15
+    concurrency:
+      group: desplegar-ms04-${{ inputs.entorno }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Desplegar y verificar
+        run: infra/deploy.sh
+        env:
+          ENTORNO: ${{ inputs.entorno }}
+          TAG: ${{ inputs.tag }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEPLOY_DIR: ${{ vars.DEPLOY_DIR }}
+          GATEWAY_URL: ${{ vars.GATEWAY_URL }}
+          LOG_LEVEL: ${{ vars.LOG_LEVEL }}
+          MS04_EXTRA_ENV: ${{ vars.MS04_EXTRA_ENV }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          GATEWAY_SERVICE_KEY: ${{ secrets.GATEWAY_SERVICE_KEY }}
