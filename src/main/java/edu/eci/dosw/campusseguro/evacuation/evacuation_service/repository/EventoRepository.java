@@ -33,6 +33,27 @@ public interface EventoRepository extends JpaRepository<Evento, UUID> {
     Optional<Evento> buscarParaActualizar(@Param("id") UUID id);
 
     /**
+     * Toma un bloqueo asesor transaccional sobre la clave; se libera al terminar la transacción
+     *
+     * @param clave clave del bloqueo
+     * @return siempre 1
+     */
+    @Query(value = "SELECT 1 FROM (SELECT pg_advisory_xact_lock(hashtextextended(:clave, 0))) AS bloqueo",
+            nativeQuery = true)
+    Integer bloquear(@Param("clave") String clave);
+
+    /**
+     * Serializa las llamadas de MS06 sobre un mismo evento, también cuando el evento todavía no existe y no hay
+     * fila que bloquear con FOR UPDATE: dos llamadas simultáneas se atienden una tras otra y ninguna falla por la
+     * llave primaria (RNF-MS04-18). Debe llamarse al inicio de la transacción
+     *
+     * @param id eventoId
+     */
+    default void bloquearEvento(UUID id) {
+        bloquear("evento:" + id);
+    }
+
+    /**
      * Lee el evento con bloqueo compartido (SELECT ... FOR SHARE) en la transacción del check-in: así un
      * FINALIZADO espera a que termine el check-in en curso y ninguno se cuela después (3_modelo-datos.md)
      *

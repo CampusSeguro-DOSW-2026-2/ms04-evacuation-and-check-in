@@ -11,7 +11,7 @@ Historia KAIR-606: verificar los RNF de rendimiento, concurrencia y usabilidad p
 | RNF-MS04-07 | Reporte en máximo 3 interacciones | [prueba-usabilidad.md](prueba-usabilidad.md) (manual) |
 
 Necesitan RF-MS04-02/03 (registrar y actualizar el check-in), RF-MS04-06 (consolidado) y RF-MS04-11 (recibir el
-estado del evento). Hasta que estén implementados, las pruebas fallan con `501 NO_IMPLEMENTADO`.
+estado del evento), que ya están implementados.
 
 ## 1. Pruebas JUnit (sin HTTP, contra PostgreSQL real)
 
