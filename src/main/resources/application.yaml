@@ -63,6 +63,10 @@ gateway:
   service-key: ${GATEWAY_SERVICE_KEY:}
   timeout-ms: ${GATEWAY_TIMEOUT_MS:2000}
 
+# Una petición que tarda más que esto queda en el log con su Correlation ID (RNF-MS04-01)
+rendimiento:
+  umbral-lento-ms: ${RENDIMIENTO_UMBRAL_LENTO_MS:5000}
+
 # Rutas de los otros microservicios que MS04 llama a través del Gateway
 clients:
   ms02:

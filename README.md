@@ -67,24 +67,29 @@ real con Testcontainers y le aplican los scripts de `database/`. Genera la cober
 `target/site/jacoco/jacoco.xml`. El pipeline (`.github/workflows/ci.yml`) hace lo mismo, analiza con SonarCloud
 cuando existe el secreto `SONAR_TOKEN` y construye la imagen Docker.
 
+Las pruebas de rendimiento y concurrencia (RNF-MS04-01, 02, 04 y 06) no corren con `mvn verify` porque lanzan 500
+hilos: se ejecutan con `mvn verify -Prendimiento`. La prueba de carga HTTP con k6 y el protocolo de la prueba de
+usabilidad (RNF-MS04-07) están en [`rendimiento/`](rendimiento/README.md). Las peticiones de más de 5 s quedan en el
+log como `Petición lenta` con su Correlation ID (umbral en `RENDIMIENTO_UMBRAL_LENTO_MS`).
+
 ## Estructura y dónde va cada feature
 
 Los controllers y services ya existen con el contrato completo (`api/swagger.yml` de la documentación). Lo que aún
 no tiene lógica responde `501 NO_IMPLEMENTADO`. Cada feature del Jira tiene sus propias clases, para que no se
 pisen entre sí: al implementar, se completa el service y se reemplaza su `ApiException.noImplementado(...)`.
 
-| Feature (Jira) | Controller | Service |
-|---|---|---|
-| RF-MS04-01 Consultar eventos activos (KAIR-572) | `EventoActivoController` | `EventoActivoService` |
-| RF-MS04-02 y RF-MS04-03 Registrar y actualizar el check-in (KAIR-573, KAIR-574) | `CheckinController` | `CheckinService` |
-| RF-MS04-04 Solicitud de asistencia a MS05 (KAIR-575) | no tiene (lo llama `CheckinService`) | `SolicitudAsistenciaService` |
-| RF-MS04-05 Consultar el propio estado (KAIR-576) | `EstadoPropioController` | `EstadoPropioService` |
-| RF-MS04-06, 07 y 08 Dashboard (KAIR-577, KAIR-578, KAIR-579) | `DashboardController` | `DashboardService` |
-| RF-MS04-09 Histórico (KAIR-580) | `HistorialController` | `HistorialService` |
-| RF-MS04-10 Resultados (KAIR-583) | `ResultadosController` | `ResultadosService` |
-| RF-MS04-11 Recibir el estado del evento (KAIR-571) | `EventoInternoController` | `EstadoEventoService` |
-| RF-MS04-12 Detalle de check-ins para MS06 (KAIR-581) | `EventoInternoController` | `DetalleCheckinsService` |
-| RF-MS04-13 Consultar eventos (KAIR-582) | `ConsultaEventoController` | `ConsultaEventoService` |
+| Feature (Jira) | Controller | Service | Estado |
+|---|---|---|---|
+| RF-MS04-01 Consultar eventos activos (KAIR-572) | `EventoActivoController` | `EventoActivoService` | Implementado |
+| RF-MS04-02 y RF-MS04-03 Registrar y actualizar el check-in (KAIR-573, KAIR-574) | `CheckinController` | `CheckinService` | Pendiente |
+| RF-MS04-04 Solicitud de asistencia a MS05 (KAIR-575) | no tiene (lo llama `CheckinService`) | `SolicitudAsistenciaService` | Pendiente |
+| RF-MS04-05 Consultar el propio estado (KAIR-576) | `EstadoPropioController` | `EstadoPropioService` | Implementado |
+| RF-MS04-06, 07 y 08 Dashboard (KAIR-577, KAIR-578, KAIR-579) | `DashboardController` | `DashboardService` | Pendiente |
+| RF-MS04-09 Histórico (KAIR-580) | `HistorialController` | `HistorialService` | Pendiente |
+| RF-MS04-10 Resultados (KAIR-583) | `ResultadosController` | `ResultadosService` | Implementado |
+| RF-MS04-11 Recibir el estado del evento (KAIR-571) | `EventoInternoController` | `EstadoEventoService` | Pendiente |
+| RF-MS04-12 Detalle de check-ins para MS06 (KAIR-581) | `EventoInternoController` | `DetalleCheckinsService` | Pendiente |
+| RF-MS04-13 Consultar eventos (KAIR-582) | `ConsultaEventoController` | `ConsultaEventoService` | Pendiente |
 
 Piezas compartidas ya hechas, que no hay que volver a escribir:
 
@@ -96,5 +101,21 @@ Piezas compartidas ya hechas, que no hay que volver a escribir:
   `PermissionChecker`. Las rutas internas de MS06 las protege `SecurityConfig` por `X-Service-Name`.
 * **Auditoría:** `AuditRecorder` envía el evento a MS08 sin afectar la respuesta si MS08 falla.
 * **Paginación:** `Paginacion.validar(page, size)` y `PageResponse`.
+* **Población objetivo (MS01):** `PoblacionObjetivoClient` devuelve los usuarios ACTIVOS de los roles convocados
+  (RN-MS04-15), o vacío si MS01 no responde. Lo usan los resultados (RF-MS04-10) y sirve para los pendientes
+  (RF-MS04-07). La ruta de MS01 (`GET /api/v1/users/by-role`) está pendiente de acordar (decisión abierta n.º 2).
 
 Los ids que vienen de MS02 (punto de encuentro, edificio, espacio) son UUID, como en MS02.
+
+## Condición de cierre
+
+MS04 es integrable cuando pasan los criterios de aceptación de RF-MS04-01 a RF-MS04-13 y se verifican RNF-MS04-01
+a RNF-MS04-07 (historia KAIR-606). Al implementar una feature, actualice su columna *Estado* en la tabla anterior.
+
+| Verificación | Cómo | Estado |
+|---|---|---|
+| Criterios de RF-MS04-01 a 13 | `mvn verify` | 3 de 13 implementados |
+| RNF-MS04-01, 02, 04 y 06 | `mvn verify -Prendimiento` y k6 ([`rendimiento/`](rendimiento/README.md)) | Listas; esperan RF-02/03, 06 y 11 |
+| RNF-MS04-03 (MS05 caído no impide el check-in) | Pruebas de RF-MS04-04 | Pendiente |
+| RNF-MS04-05 (sin escrituras en un evento finalizado) | Pruebas de RF-MS04-02/03 y 11 | Pendiente |
+| RNF-MS04-07 (3 interacciones) | [Prueba de usabilidad](rendimiento/prueba-usabilidad.md), manual con el frontend | Pendiente |

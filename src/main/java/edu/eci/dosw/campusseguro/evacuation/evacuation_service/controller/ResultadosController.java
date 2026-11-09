@@ -36,6 +36,6 @@ public class ResultadosController {
     @GetMapping("/{eventoId}/resultados")
     public Resultados resultados(@PathVariable UUID eventoId, RequesterIdentity requester) {
         PermissionChecker.require(requester, Permiso.HISTORY_READ);
-        return service.resultados(eventoId);
+        return service.resultados(eventoId, requester);
     }
 }

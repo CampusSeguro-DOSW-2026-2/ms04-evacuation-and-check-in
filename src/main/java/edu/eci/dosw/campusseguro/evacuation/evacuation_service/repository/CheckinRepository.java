@@ -1,5 +1,6 @@
 package edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -66,6 +67,46 @@ public interface CheckinRepository extends Repository<Checkin, UUID> {
             + "WHERE evento_id = :eventoId GROUP BY estado", nativeQuery = true)
     List<ConteoPorEstado> contarVigentesPorEstado(@Param("eventoId") UUID eventoId);
 
+    /**
+     * Cuenta las personas cuyo estado vigente es SAFE, agrupadas por punto de encuentro (RN-MS04-13). Solo las
+     * personas a salvo se cuentan por punto
+     *
+     * @param eventoId evento
+     * @return total de personas a salvo por punto de encuentro, del punto con más personas al de menos
+     */
+    @Query(value = "SELECT punto_encuentro_id AS puntoEncuentroId, COUNT(*) AS total FROM v_checkins_vigentes "
+            + "WHERE evento_id = :eventoId AND estado = 'SAFE' "
+            + "GROUP BY punto_encuentro_id ORDER BY total DESC, punto_encuentro_id", nativeQuery = true)
+    List<ConteoPorPunto> contarSafePorPuntoEncuentro(@Param("eventoId") UUID eventoId);
+
+    /**
+     * Personas que reportaron Requiero asistencia al menos una vez en el evento, aunque su estado vigente ya sea
+     * otro, con su solicitud de asistencia (RF-MS04-10). Ordenadas por el primer reporte de Requiero asistencia
+     *
+     * @param eventoId evento
+     * @return una fila por persona, con el id de la solicitud en MS05 y su estado de envío (null si no tiene)
+     */
+    @Query(value = "SELECT c.usuario_id AS usuarioId, s.solicitud_ms05_id AS solicitudId, "
+            + "s.estado_envio AS estadoEnvio "
+            + "FROM checkins c LEFT JOIN solicitudes_asistencia s "
+            + "ON s.evento_id = c.evento_id AND s.usuario_id = c.usuario_id "
+            + "WHERE c.evento_id = :eventoId AND c.estado = 'NEEDS_ASSISTANCE' "
+            + "GROUP BY c.usuario_id, s.solicitud_ms05_id, s.estado_envio "
+            + "ORDER BY MIN(c.registrado_en), MIN(c.numero)", nativeQuery = true)
+    List<SolicitudPorUsuario> buscarSolicitantesDeAsistencia(@Param("eventoId") UUID eventoId);
+
+    /**
+     * Fecha y hora del primer check-in de cada usuario en el evento: {@code MIN(registrado_en)} (RF-MS04-10).
+     * Hay una fila por cada usuario con estado vigente
+     *
+     * @param eventoId evento
+     * @return el primer check-in de cada usuario, del más antiguo al más reciente
+     */
+    @Query(value = "SELECT usuario_id AS usuarioId, MIN(registrado_en) AS primerCheckinEn "
+            + "FROM checkins WHERE evento_id = :eventoId "
+            + "GROUP BY usuario_id ORDER BY MIN(registrado_en), MIN(numero)", nativeQuery = true)
+    List<PrimerCheckinPorUsuario> buscarPrimerosCheckins(@Param("eventoId") UUID eventoId);
+    
     /**
      * Condición que deja solo los check-ins vigentes que el BRIGADISTA puede ver (RN-MS04-14): SAFE en un punto de
      * encuentro de sus zonas y NEEDS_ASSISTANCE con la ubicación en uno de sus edificios, espacios o puntos de
@@ -218,6 +259,59 @@ public interface CheckinRepository extends Repository<Checkin, UUID> {
          * @return número de personas con ese estado vigente
          */
         long getTotal();
+    }
+
+    /**
+     * Total de personas a salvo en un punto de encuentro
+     */
+    interface ConteoPorPunto {
+
+        /**
+         * @return punto de encuentro de MS02
+         */
+        UUID getPuntoEncuentroId();
+
+        /**
+         * @return número de personas cuyo estado vigente es SAFE en ese punto
+         */
+        long getTotal();
+    }
+
+    /**
+     * Persona que reportó Requiero asistencia al menos una vez, con su solicitud
+     */
+    interface SolicitudPorUsuario {
+
+        /**
+         * @return id del usuario
+         */
+        UUID getUsuarioId();
+
+        /**
+         * @return id de la solicitud en MS05; null mientras no haya llegado o si no hay solicitud
+         */
+        String getSolicitudId();
+
+        /**
+         * @return estado de envío de la solicitud; null si no hay solicitud
+         */
+        String getEstadoEnvio();
+    }
+
+    /**
+     * Primer check-in de un usuario en un evento
+     */
+    interface PrimerCheckinPorUsuario {
+
+        /**
+         * @return id del usuario
+         */
+        UUID getUsuarioId();
+
+        /**
+         * @return fecha y hora de su primer check-in
+         */
+        Instant getPrimerCheckinEn();
     }
 
     /**

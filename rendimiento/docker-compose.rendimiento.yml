@@ -1,0 +1,36 @@
+# Prueba de carga de MS04 con dobles de MS01, MS02, MS05 y MS08 (historia KAIR-606). Se usa junto con el
+# docker-compose.yml de la raíz, desde la raíz del repositorio:
+#
+#   docker compose -f docker-compose.yml -f rendimiento/docker-compose.rendimiento.yml up -d --build
+#   docker compose -f docker-compose.yml -f rendimiento/docker-compose.rendimiento.yml run --rm k6
+#   docker compose -f docker-compose.yml -f rendimiento/docker-compose.rendimiento.yml down -v
+#
+# El Gateway de MS04 apunta a WireMock, que responde por MS01, MS02, MS05 y MS08 con una latencia de 20 a 120 ms.
+services:
+  dobles:
+    image: wiremock/wiremock:3.9.1
+    command: ["--port", "8080", "--disable-banner", "--no-request-journal"]
+    volumes:
+      - ./rendimiento/dobles:/home/wiremock:ro
+
+  ms04:
+    environment:
+      GATEWAY_URL: http://dobles:8080
+      GATEWAY_SERVICE_KEY: clave-de-servicio-solo-para-la-prueba-de-carga
+    depends_on:
+      dobles:
+        condition: service_started
+
+  k6:
+    image: grafana/k6:0.52.0
+    profiles: ["carga"]
+    command: ["run", "--summary-export=/resultados/resumen.json", "/scripts/carga-checkins.js"]
+    environment:
+      MS04_URL: http://ms04:8084
+      USUARIOS: ${USUARIOS:-500}
+    volumes:
+      - ./rendimiento/k6:/scripts:ro
+      - ./rendimiento/resultados:/resultados
+    depends_on:
+      ms04:
+        condition: service_started
