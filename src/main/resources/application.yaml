@@ -63,6 +63,10 @@ gateway:
   service-key: ${GATEWAY_SERVICE_KEY:}
   timeout-ms: ${GATEWAY_TIMEOUT_MS:2000}
 
+# Una petición que tarda más que esto queda en el log con su Correlation ID (RNF-MS04-01)
+rendimiento:
+  umbral-lento-ms: ${RENDIMIENTO_UMBRAL_LENTO_MS:5000}
+
 # Servicios que pueden usar las rutas internas de MS04, separados por coma (RN-MS04-23).
 # El Gateway inyecta X-Service-Name como ms01 ... ms08 a partir de la clave de servicio.
 internal:

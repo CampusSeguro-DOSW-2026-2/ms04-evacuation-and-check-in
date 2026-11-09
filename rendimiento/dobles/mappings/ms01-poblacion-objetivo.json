@@ -1,0 +1,10 @@
+{
+  "name": "MS01: población objetivo por roles (supuesto, decisión abierta n.º 2). Página vacía: la carga no la necesita",
+  "request": { "method": "GET", "urlPath": "/api/v1/users/by-role" },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": { "contenido": [], "page": 0, "size": 100, "total_elementos": 0, "total_paginas": 0 },
+    "delayDistribution": { "type": "uniform", "lower": 20, "upper": 120 }
+  }
+}
