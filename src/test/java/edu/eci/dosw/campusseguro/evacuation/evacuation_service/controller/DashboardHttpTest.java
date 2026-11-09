@@ -1,5 +1,6 @@
 package edu.eci.dosw.campusseguro.evacuation.evacuation_service.controller;
 
+import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
@@ -15,6 +16,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.EnumSet;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -38,6 +40,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.PoblacionObjetivoClient;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.UsuarioNombresClient;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.ZonasBrigadistaClient;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.ZonasBrigadistaClient.ZonasAsignadas;
@@ -60,8 +63,8 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.service.Dashboard
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.util.CorrelationIds;
 
 /**
- * Contrato HTTP de RF-MS04-06: GET /api/v1/chi/eventos/{eventoId}/consolidado y /personas con el service real y los
- * repositorios y clientes de MS01 y MS05 simulados. Comprueba la forma de las respuestas, los errores estándar, el
+ * Contrato HTTP de RF-MS04-06 y RF-MS04-07: GET /api/v1/chi/eventos/{eventoId}/consolidado, /personas y
+ * /pendientes con el service real y los repositorios y clientes de MS01 y MS05 simulados. Comprueba la forma de las respuestas, los errores estándar, el
  * permiso ms04:dashboard:read y que la identidad sale solo de las cabeceras
  */
 @WebMvcTest(controllers = DashboardController.class)
@@ -129,6 +132,9 @@ class DashboardHttpTest {
 
     @MockitoBean
     private ZonasBrigadistaClient zonasBrigadista;
+
+    @MockitoBean
+    private PoblacionObjetivoClient poblacionObjetivo;
 
     /**
      * Crea el evento en el estado indicado
@@ -522,5 +528,247 @@ class DashboardHttpTest {
                 .andExpect(jsonPath("$.codigo").value("DEPENDENCIA_NO_DISPONIBLE"));
 
         verifyNoInteractions(checkins, nombres);
+    }
+
+    // ---------------------------------------------------------------- pendientes
+
+    private static final List<String> ROLES = List.of("ESTUDIANTE", "PROFESOR");
+    private static final Instant INICIO = Instant.parse("2026-11-20T14:00:00Z");
+
+    /**
+     * Crea un evento con los roles convocados y el inicio fijos
+     *
+     * @return el evento EN_EJECUCION
+     */
+    private Evento eventoConvocado() {
+        Evento evento = evento(EstadoEvento.EN_EJECUCION);
+        evento.setRolesConvocados(ROLES);
+        evento.setFechaInicio(INICIO);
+        return evento;
+    }
+
+    /**
+     * Los pendientes responden 200 con la página de los Estándares y los campos del contrato en snake_case, con el
+     * total de pendientes en total_elementos
+     *
+     * @throws Exception si falla la petición
+     */
+    @Test
+    void pendientesResponde200ConLaPaginaYElContrato() throws Exception {
+        when(eventos.findById(EVENTO)).thenReturn(Optional.of(eventoConvocado()));
+        when(poblacionObjetivo.usuariosActivosPorRoles(any(), any(), any()))
+                .thenReturn(Optional.of(Set.of(ANA, LUIS)));
+        when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of());
+        when(nombres.nombresDe(List.of(ANA, LUIS))).thenReturn(Map.of(ANA, "Ana Pérez"));
+
+        mockMvc.perform(como(BASE + "/pendientes", "COORDINADOR"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(CorrelationIds.HEADER, CORRELATION))
+                .andExpect(jsonPath("$.contenido", hasSize(2)))
+                .andExpect(jsonPath("$.contenido[0].usuario_id").value(ANA.toString()))
+                .andExpect(jsonPath("$.contenido[0].nombre").value("Ana Pérez"))
+                .andExpect(jsonPath("$.contenido[1].usuario_id").value(LUIS.toString()))
+                .andExpect(jsonPath("$.contenido[1].nombre").value(nullValue()))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(20))
+                .andExpect(jsonPath("$.total_elementos").value(2))
+                .andExpect(jsonPath("$.total_paginas").value(1));
+    }
+
+    /**
+     * Quien ya reportó no aparece, y el total de pendientes cuenta solo a quienes faltan
+     *
+     * @throws Exception si falla la petición
+     */
+    @Test
+    void quienYaReportoNoApareceEnLosPendientes() throws Exception {
+        when(eventos.findById(EVENTO)).thenReturn(Optional.of(eventoConvocado()));
+        when(poblacionObjetivo.usuariosActivosPorRoles(any(), any(), any()))
+                .thenReturn(Optional.of(Set.of(ANA, LUIS)));
+        when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of(ANA));
+        when(nombres.nombresDe(List.of(LUIS))).thenReturn(Map.of(LUIS, "Luis Gómez"));
+
+        mockMvc.perform(como(BASE + "/pendientes", "AUDITOR"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.contenido", hasSize(1)))
+                .andExpect(jsonPath("$.contenido[0].usuario_id").value(LUIS.toString()))
+                .andExpect(jsonPath("$.total_elementos").value(1));
+    }
+
+    /**
+     * Pide la página indicada: el contenido es solo esa parte y el total y las páginas son los de toda la lista
+     *
+     * @throws Exception si falla la petición
+     */
+    @Test
+    void pendientesRespetaLaPaginaYElTamanoPedidos() throws Exception {
+        Set<UUID> poblacion = new HashSet<>();
+        for (int i = 1; i <= 25; i++) {
+            poblacion.add(UUID.fromString(String.format("00000000-0000-4000-8000-%012d", i)));
+        }
+        when(eventos.findById(EVENTO)).thenReturn(Optional.of(eventoConvocado()));
+        when(poblacionObjetivo.usuariosActivosPorRoles(any(), any(), any())).thenReturn(Optional.of(poblacion));
+        when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of());
+        when(nombres.nombresDe(any())).thenReturn(Map.of());
+
+        mockMvc.perform(como(BASE + "/pendientes?page=2&size=10", "ORGANIZADOR"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.contenido", hasSize(5)))
+                .andExpect(jsonPath("$.contenido[0].usuario_id").value("00000000-0000-4000-8000-000000000021"))
+                .andExpect(jsonPath("$.page").value(2))
+                .andExpect(jsonPath("$.size").value(10))
+                .andExpect(jsonPath("$.total_elementos").value(25))
+                .andExpect(jsonPath("$.total_paginas").value(3));
+    }
+
+    /**
+     * Los roles con el permiso, solos o junto con BRIGADISTA, pueden consultar los pendientes
+     *
+     * @param rol valor de la cabecera X-User-Role
+     * @throws Exception si falla la petición
+     */
+    @ParameterizedTest
+    @ValueSource(strings = { "COORDINADOR", "ORGANIZADOR", "AUDITOR", "BRIGADISTA,COORDINADOR" })
+    void losRolesConElPermisoPuedenConsultarPendientes(String rol) throws Exception {
+        when(eventos.findById(EVENTO)).thenReturn(Optional.of(eventoConvocado()));
+        when(poblacionObjetivo.usuariosActivosPorRoles(any(), any(), any())).thenReturn(Optional.of(Set.of(ANA)));
+        when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of());
+        when(nombres.nombresDe(any())).thenReturn(Map.of());
+
+        mockMvc.perform(como(BASE + "/pendientes", rol))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total_elementos").value(1));
+    }
+
+    /**
+     * El BRIGADISTA recibe 200 con total 0 y lista vacía, sin consultar a MS01, a MS05 ni los check-ins (A6)
+     *
+     * @throws Exception si falla la petición
+     */
+    @Test
+    void elBrigadistaRecibe200ConTotalCeroYListaVacia() throws Exception {
+        when(eventos.findById(EVENTO)).thenReturn(Optional.of(eventoConvocado()));
+
+        mockMvc.perform(como(BASE + "/pendientes", "BRIGADISTA"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.contenido", empty()))
+                .andExpect(jsonPath("$.total_elementos").value(0))
+                .andExpect(jsonPath("$.total_paginas").value(0));
+
+        verifyNoInteractions(poblacionObjetivo, zonasBrigadista, checkins, nombres);
+    }
+
+    /**
+     * Un rol sin ms04:dashboard:read recibe 403 sin consultar nada
+     *
+     * @param rol valor de la cabecera X-User-Role
+     * @throws Exception si falla la petición
+     */
+    @ParameterizedTest
+    @ValueSource(strings = { "ESTUDIANTE", "PROFESOR", "ADMINISTRATIVO", "ADMIN", "ESTUDIANTE,PROFESOR" })
+    void losRolesSinElPermisoNoPuedenConsultarPendientes(String rol) throws Exception {
+        mockMvc.perform(como(BASE + "/pendientes", rol))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.codigo").value("PROHIBIDO"));
+
+        verifyNoInteractions(eventos, checkins, nombres, zonasBrigadista, poblacionObjetivo);
+    }
+
+    /**
+     * Sin cabeceras de identidad los pendientes responden 401
+     *
+     * @throws Exception si falla la petición
+     */
+    @Test
+    void pendientesSinCabecerasDeIdentidadEsNoAutenticado() throws Exception {
+        mockMvc.perform(get(BASE + "/pendientes"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.codigo").value("NO_AUTENTICADO"));
+    }
+
+    /**
+     * Una paginación inválida responde 400 con el mensaje del formulario F-03 y sin consultar nada
+     *
+     * @param consulta parámetros de paginación inválidos
+     * @param campo parámetro que se reporta
+     * @param mensaje mensaje del formulario F-03
+     * @throws Exception si falla la petición
+     */
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "page=-1|page|Página no válida.",
+            "page=abc|page|Página no válida.",
+            "size=0|size|Tamaño de página no válido (1 a 100).",
+            "size=101|size|Tamaño de página no válido (1 a 100).",
+            "size=abc|size|Tamaño de página no válido (1 a 100)." })
+    void pendientesConPaginacionInvalidaResponde400(String consulta, String campo, String mensaje)
+            throws Exception {
+        mockMvc.perform(como(BASE + "/pendientes?" + consulta, "COORDINADOR"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.codigo").value("VALIDACION"))
+                .andExpect(jsonPath("$.errores[0].campo").value(campo))
+                .andExpect(jsonPath("$.errores[0].mensaje").value(mensaje));
+
+        verifyNoInteractions(eventos, checkins, nombres, poblacionObjetivo);
+    }
+
+    /**
+     * Un evento inexistente responde 404
+     *
+     * @throws Exception si falla la petición
+     */
+    @Test
+    void pendientesDeUnEventoInexistenteResponde404() throws Exception {
+        when(eventos.findById(EVENTO)).thenReturn(Optional.empty());
+
+        mockMvc.perform(como(BASE + "/pendientes", "COORDINADOR"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.codigo").value("NO_ENCONTRADO"))
+                .andExpect(jsonPath("$.mensaje").value("Evento no encontrado."));
+
+        verifyNoInteractions(poblacionObjetivo, checkins, nombres);
+    }
+
+    /**
+     * Si MS01 no entrega la población objetivo, los pendientes responden 503 con el mensaje de F-03 y el
+     * consolidado del mismo evento sigue funcionando
+     *
+     * @throws Exception si falla la petición
+     */
+    @Test
+    void sinPoblacionDeMs01LosPendientesResponden503YElConsolidadoSigueFuncionando() throws Exception {
+        when(eventos.findById(EVENTO)).thenReturn(Optional.of(eventoConvocado()));
+        when(poblacionObjetivo.usuariosActivosPorRoles(any(), any(), any())).thenReturn(Optional.empty());
+        when(checkins.contarVigentes(EVENTO, false, NADA, NADA, NADA)).thenReturn(List.of());
+
+        mockMvc.perform(como(BASE + "/pendientes", "COORDINADOR"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.status").value(503))
+                .andExpect(jsonPath("$.codigo").value("DEPENDENCIA_NO_DISPONIBLE"))
+                .andExpect(jsonPath("$.mensaje").value("La lista de pendientes no está disponible en este momento."))
+                .andExpect(jsonPath("$.correlation_id").value(CORRELATION));
+        mockMvc.perform(como(BASE + "/consolidado", "COORDINADOR"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total_reportados").value(0));
+
+        verifyNoInteractions(nombres);
+    }
+
+    /**
+     * La consulta a MS01 lleva los roles convocados, el corte de creación y la identidad que sale de las cabeceras
+     *
+     * @throws Exception si falla la petición
+     */
+    @Test
+    void laPoblacionSePideConLosRolesElCorteYLaIdentidadDeLasCabeceras() throws Exception {
+        when(eventos.findById(EVENTO)).thenReturn(Optional.of(eventoConvocado()));
+        when(poblacionObjetivo.usuariosActivosPorRoles(any(), any(), any())).thenReturn(Optional.of(Set.of()));
+        when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of());
+        when(nombres.nombresDe(any())).thenReturn(Map.of());
+
+        mockMvc.perform(como(BASE + "/pendientes", "AUDITOR")).andExpect(status().isOk());
+
+        verify(poblacionObjetivo).usuariosActivosPorRoles(ROLES, INICIO,
+                new RequesterIdentity(UUID.fromString(USUARIO), EnumSet.of(Rol.AUDITOR)));
     }
 }

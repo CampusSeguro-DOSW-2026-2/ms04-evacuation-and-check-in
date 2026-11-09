@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -14,6 +15,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.PoblacionObjetivoClient;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.UsuarioNombresClient;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.ZonasBrigadistaClient;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.ZonasBrigadistaClient.ZonasAsignadas;
@@ -40,19 +42,21 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.Rol;
  * personas que requieren asistencia (KAIR-579, historia KAIR-600).
  *
  * Todas las consultas funcionan con el evento en cualquier estado (RN-MS04-22) y el BRIGADISTA ve solo lo de sus
- * zonas asignadas en MS05 (RN-MS04-14). Implementado: RF-MS04-06. Pendientes de implementar (responden 501 hasta
- * que se complete la lógica): RF-MS04-07 y RF-MS04-08
+ * zonas asignadas en MS05 (RN-MS04-14). Implementados: RF-MS04-06 y RF-MS04-07. Pendiente de implementar (responde
+ * 501 hasta que se complete la lógica): RF-MS04-08
  */
 @Service
 public class DashboardService {
 
     public static final String EVENTO_NO_ENCONTRADO = "Evento no encontrado.";
     public static final String PUNTO_SOLO_SAFE = "El punto de encuentro solo aplica a Estoy a salvo.";
+    public static final String PENDIENTES_NO_DISPONIBLES = "La lista de pendientes no está disponible en este momento.";
 
     private final EventoRepository eventos;
     private final CheckinRepository checkins;
     private final UsuarioNombresClient nombres;
     private final ZonasBrigadistaClient zonasBrigadista;
+    private final PoblacionObjetivoClient poblacionObjetivo;
     private final Clock clock;
 
     /**
@@ -71,14 +75,16 @@ public class DashboardService {
      * @param checkins repositorio de check-ins
      * @param nombres cliente de los nombres de MS01
      * @param zonasBrigadista cliente de las zonas de brigadista de MS05
-     * @param clock reloj con el que se marca la fecha del cálculo
+     * @param poblacionObjetivo cliente de la población objetivo de MS01
+     * @param clock reloj con el que se marca la fecha del cálculo y se fija el corte de la población
      */
     public DashboardService(EventoRepository eventos, CheckinRepository checkins, UsuarioNombresClient nombres,
-            ZonasBrigadistaClient zonasBrigadista, Clock clock) {
+            ZonasBrigadistaClient zonasBrigadista, PoblacionObjetivoClient poblacionObjetivo, Clock clock) {
         this.eventos = eventos;
         this.checkins = checkins;
         this.nombres = nombres;
         this.zonasBrigadista = zonasBrigadista;
+        this.poblacionObjetivo = poblacionObjetivo;
         this.clock = clock;
     }
 
@@ -160,29 +166,65 @@ public class DashboardService {
      * @throws ApiException 503 DEPENDENCIA_NO_DISPONIBLE si es un BRIGADISTA y MS05 no entrega sus zonas
      */
     private Alcance alcanceDe(RequesterIdentity requester) {
-        boolean soloBrigadista = requester.tieneRol(Rol.BRIGADISTA)
-                && !requester.tieneRol(Rol.COORDINADOR)
-                && !requester.tieneRol(Rol.ORGANIZADOR)
-                && !requester.tieneRol(Rol.AUDITOR);
-        if (soloBrigadista) {
+        if (esSoloBrigadista(requester)) {
             return new Alcance(true, zonasBrigadista.zonasDe(requester));
         }
         return new Alcance(false, new ZonasAsignadas(Set.of(), Set.of(), Set.of()));
     }
 
     /**
-     * Personas de la población objetivo (usuarios ACTIVOS de MS01 con un rol convocado) que no tienen ningún
-     * check-in en el evento (RN-MS04-15). Si MS01 no entrega la población, 503 y el consolidado sigue disponible.
-     * Para el BRIGADISTA la lista siempre es vacía (RN-MS04-14)
+     * Indica si el solicitante tiene el rol BRIGADISTA y ninguno de los roles que ven todo el evento
      *
-     * @param eventoId evento; 404 si no existe
+     * @param requester solicitante con {@code ms04:dashboard:read}
+     * @return true si su consulta se limita a lo que le muestra el BRIGADISTA (RN-MS04-14)
+     */
+    private boolean esSoloBrigadista(RequesterIdentity requester) {
+        return requester.tieneRol(Rol.BRIGADISTA)
+                && !requester.tieneRol(Rol.COORDINADOR)
+                && !requester.tieneRol(Rol.ORGANIZADOR)
+                && !requester.tieneRol(Rol.AUDITOR);
+    }
+
+    /**
+     * Personas de la población objetivo (usuarios ACTIVOS de MS01 con un rol convocado) que no tienen ningún
+     * check-in en el evento (RN-MS04-15), ordenadas por id de usuario, con su nombre (de MS01, RN-MS04-25). Si MS01
+     * no entrega la población, 503 y el consolidado sigue disponible; si no entrega los nombres, la lista sale con
+     * el nombre nulo. Para el BRIGADISTA la lista siempre es vacía y no se consulta a MS01 (RN-MS04-14). Funciona
+     * con el evento en cualquier estado (RN-MS04-22)
+     *
+     * @param eventoId evento
      * @param page número de página, desde 0
      * @param size tamaño de página, de 1 a 100
      * @param requester solicitante con {@code ms04:dashboard:read}
-     * @return la página de pendientes
+     * @return la página de pendientes, con el total de pendientes en {@code total_elementos}
+     * @throws ApiException 404 NO_ENCONTRADO si el evento no existe, 503 DEPENDENCIA_NO_DISPONIBLE si MS01 no
+     *         entrega la población objetivo
      */
     public PageResponse<Pendiente> pendientes(UUID eventoId, int page, int size, RequesterIdentity requester) {
-        throw ApiException.noImplementado("RF-MS04-07 personas pendientes");
+        Evento evento = eventos.findById(eventoId)
+                .orElseThrow(() -> ApiException.noEncontrado(EVENTO_NO_ENCONTRADO));
+        if (esSoloBrigadista(requester)) {
+            return PageResponse.of(List.of(), page, size, 0);
+        }
+
+        Set<UUID> poblacion = poblacionObjetivo
+                .usuariosActivosPorRoles(evento.getRolesConvocados(), evento.corteDePoblacion(Instant.now(clock)),
+                        requester)
+                .orElseThrow(() -> ApiException.dependenciaNoDisponible(PENDIENTES_NO_DISPONIBLES));
+        Set<UUID> reportados = Set.copyOf(checkins.buscarUsuariosConEstadoVigente(eventoId));
+        List<UUID> pendientes = poblacion.stream()
+                .filter(usuarioId -> !reportados.contains(usuarioId))
+                .sorted(Comparator.comparing(UUID::toString))
+                .toList();
+
+        int desde = (int) Math.min((long) page * size, pendientes.size());
+        int hasta = (int) Math.min((long) desde + size, pendientes.size());
+        List<UUID> usuarios = pendientes.subList(desde, hasta);
+        Map<UUID, String> nombresPorUsuario = nombres.nombresDe(usuarios);
+        List<Pendiente> pagina = usuarios.stream()
+                .map(usuarioId -> new Pendiente(usuarioId, nombresPorUsuario.get(usuarioId)))
+                .toList();
+        return PageResponse.of(pagina, page, size, pendientes.size());
     }
 
     /**

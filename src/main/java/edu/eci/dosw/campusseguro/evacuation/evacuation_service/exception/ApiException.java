@@ -74,6 +74,11 @@ public class ApiException extends RuntimeException {
                 List.of());
     }
 
+    /** 503 DEPENDENCIA_NO_DISPONIBLE con el texto propio de la operación; nunca se reenvía el cuerpo de error */
+    public static ApiException dependenciaNoDisponible(String mensaje) {
+        return new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE, mensaje, List.of());
+    }
+
     /** 501 NO_IMPLEMENTADO: operación del contrato que todavía no tiene lógica */
     public static ApiException noImplementado(String operacion) {
         return new ApiException(ErrorCode.NOT_IMPLEMENTED, "Operación pendiente de implementar: " + operacion + ".",

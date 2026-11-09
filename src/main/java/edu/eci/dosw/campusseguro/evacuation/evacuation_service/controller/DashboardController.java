@@ -128,25 +128,41 @@ public class DashboardController {
     }
 
     /**
-     * Personas pendientes de reportar su estado; pendiente de implementar (RF-MS04-07)
+     * Personas pendientes de reportar su estado, de la población objetivo del evento
      *
      * @param eventoId evento del que se listan los pendientes
      * @param page número de página, desde 0
      * @param size tamaño de página, de 1 a 100
      * @param requester identidad tomada de las cabeceras X-User-Id y X-User-Role
-     * @return la página de pendientes
+     * @return la página de pendientes, con el total de pendientes en {@code total_elementos}
      * @throws ApiException 400 VALIDACION con paginación inválida, 403 PROHIBIDO sin el permiso
-     *         ms04:dashboard:read, 501 NO_IMPLEMENTADO mientras no se implemente
+     *         ms04:dashboard:read, 404 NO_ENCONTRADO si el evento no existe, 503 DEPENDENCIA_NO_DISPONIBLE si MS01
+     *         no entrega la población objetivo
      */
     @Operation(summary = "Personas pendientes (RF-MS04-07, F-03)",
             description = "Permiso ms04:dashboard:read. Usuarios activos de MS01 con un rol convocado que no "
-                    + "reportaron ninguno de los cuatro estados. El BRIGADISTA siempre recibe una lista vacía. "
-                    + "Si MS01 no entrega la población objetivo responde 503.")
+                    + "reportaron ninguno de los cuatro estados, ordenados por id de usuario, con su nombre (nulo "
+                    + "si MS01 no lo entregó). total_elementos es el total de pendientes. El BRIGADISTA siempre "
+                    + "recibe una lista vacía. Funciona con el evento en cualquier estado.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Página de pendientes."),
+            @ApiResponse(responseCode = "400", description = "Paginación inválida.",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "401", description = "Faltan las cabeceras de identidad.",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "403", description = "El rol no tiene el permiso ms04:dashboard:read.",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "404", description = "Evento inexistente.",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "503",
+                    description = "MS01 no entrega la población objetivo (DEPENDENCIA_NO_DISPONIBLE).",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
     @GetMapping("/{eventoId}/pendientes")
     public PageResponse<Pendiente> pendientes(@PathVariable UUID eventoId,
             @RequestParam(defaultValue = Paginacion.PAGINA_POR_DEFECTO) int page,
             @RequestParam(defaultValue = Paginacion.TAMANO_POR_DEFECTO) int size,
-            RequesterIdentity requester) {
+            @Parameter(hidden = true) RequesterIdentity requester) {
         PermissionChecker.require(requester, Permiso.DASHBOARD_READ);
         Paginacion.validar(page, size);
         return service.pendientes(eventoId, page, size, requester);
