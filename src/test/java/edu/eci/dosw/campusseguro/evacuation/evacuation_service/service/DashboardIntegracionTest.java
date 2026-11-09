@@ -38,23 +38,30 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.CheckinResume
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.Consolidado;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.PageResponse;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.Pendiente;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.PersonaAsistencia;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.SolicitudAsistenciaResumen;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.TotalPorPunto;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.Ubicacion;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.Checkin;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.EstadoCheckin;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.EstadoEnvio;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.EstadoEvento;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.Evento;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.SolicitudAsistencia;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.TipoUbicacion;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.CheckinRepository;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.EventoRepository;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.SolicitudAsistenciaRepository;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.RequesterIdentity;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.Rol;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.PostgresTestcontainerConfig;
 import jakarta.persistence.EntityManager;
 
 /**
- * RF-MS04-06 y RF-MS04-07 contra PostgreSQL real con el esquema de database/: el consolidado, el listado y los
- * pendientes salen de la vista v_checkins_vigentes (un solo estado por persona), los totales cumplen RN-MS04-13, el
- * BRIGADISTA solo ve sus zonas (RN-MS04-14) y consultar no cambia ningún dato. Necesita Docker
+ * RF-MS04-06, RF-MS04-07 y RF-MS04-08 contra PostgreSQL real con el esquema de database/: el consolidado, el listado, los
+ * pendientes y las personas que requieren asistencia salen de la vista v_checkins_vigentes (un solo estado por
+ * persona), los totales cumplen RN-MS04-13, el BRIGADISTA solo ve sus zonas (RN-MS04-14) y consultar no cambia ningún
+ * dato. Necesita Docker
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -92,6 +99,9 @@ class DashboardIntegracionTest {
 
     @Autowired
     private CheckinRepository checkins;
+
+    @Autowired
+    private SolicitudAsistenciaRepository solicitudes;
 
     @Autowired
     private EntityManager entityManager;
@@ -691,5 +701,221 @@ class DashboardIntegracionTest {
         PageResponse<Pendiente> pendientes = service.pendientes(evento.getId(), 0, 20, coordinador);
 
         assertEquals(1, pendientes.totalElementos());
+    }
+
+    // ---------------------------------------------------------------- asistencia
+
+    /**
+     * Crea la solicitud de asistencia de un usuario, ligada al check-in que la originó
+     *
+     * @param origen check-in NEEDS_ASSISTANCE que originó la solicitud
+     * @param solicitudMs05 id que devolvió MS05, null si no llegó
+     * @param estadoEnvio estado de envío de la solicitud
+     * @return la solicitud guardada
+     */
+    private SolicitudAsistencia solicitar(Checkin origen, String solicitudMs05, EstadoEnvio estadoEnvio) {
+        SolicitudAsistencia solicitud = new SolicitudAsistencia(origen.getId(), origen.getEventoId(),
+                origen.getUsuarioId(), origen.getUbicacionTipo(), origen.getUbicacionId(),
+                origen.getRegistradoEn());
+        solicitud.setSolicitudMs05Id(solicitudMs05);
+        solicitud.setEstadoEnvio(estadoEnvio);
+        return solicitudes.saveAndFlush(solicitud);
+    }
+
+    /**
+     * Solo aparece quien tiene Requiero asistencia como estado vigente, del reporte más antiguo al más reciente,
+     * con su ubicación, la fecha de su check-in vigente, su nombre y su solicitud. Quien cambia a otro estado deja
+     * de aparecer, y consultar no cambia ningún dato
+     */
+    @Test
+    void asistenciaListaSoloElEstadoVigenteDelMasAntiguoAlMasReciente() {
+        Evento evento = evento(EstadoEvento.EN_EJECUCION);
+        Checkin deAna = requiereAsistencia(evento.getId(), usuario(1), TipoUbicacion.EDIFICIO, EDIFICIO_1);
+        requiereAsistencia(evento.getId(), usuario(2), TipoUbicacion.EDIFICIO, EDIFICIO_1);
+        sinUbicacion(evento.getId(), usuario(3), EstadoCheckin.EVACUATING);
+        sinUbicacion(evento.getId(), usuario(4), EstadoCheckin.OFF_CAMPUS);
+        aSalvo(evento.getId(), usuario(5), PUNTO_A);
+        aSalvo(evento.getId(), usuario(2), PUNTO_B);
+        aSalvo(evento.getId(), usuario(6), PUNTO_A);
+        Checkin deFer = requiereAsistencia(evento.getId(), usuario(6), TipoUbicacion.ESPACIO, ESPACIO_1);
+        solicitar(deAna, "SOL-2026-0001", EstadoEnvio.ENVIADA);
+        solicitar(deFer, null, EstadoEnvio.PENDIENTE_ENVIO);
+        long antes = contarCheckins();
+
+        PageResponse<PersonaAsistencia> pagina = service.asistencia(evento.getId(), 0, 20, coordinador);
+
+        assertEquals(2, pagina.totalElementos());
+        assertEquals(1, pagina.totalPaginas());
+        assertEquals(List.of(usuario(1), usuario(6)),
+                pagina.contenido().stream().map(PersonaAsistencia::usuarioId).toList());
+        assertEquals("Usuario 00000001", pagina.contenido().get(0).nombre());
+        assertEquals(new Ubicacion(TipoUbicacion.EDIFICIO, EDIFICIO_1), pagina.contenido().get(0).ubicacion());
+        assertEquals(deAna.getRegistradoEn(), pagina.contenido().get(0).fechaReporte());
+        assertEquals(new SolicitudAsistenciaResumen("SOL-2026-0001", EstadoEnvio.ENVIADA),
+                pagina.contenido().get(0).solicitudAsistencia());
+        assertEquals("Usuario 00000006", pagina.contenido().get(1).nombre());
+        assertEquals(new Ubicacion(TipoUbicacion.ESPACIO, ESPACIO_1), pagina.contenido().get(1).ubicacion());
+        assertEquals(deFer.getRegistradoEn(), pagina.contenido().get(1).fechaReporte());
+        assertEquals(new SolicitudAsistenciaResumen(null, EstadoEnvio.PENDIENTE_ENVIO),
+                pagina.contenido().get(1).solicitudAsistencia());
+        assertEquals(antes, contarCheckins());
+    }
+
+    /**
+     * Quien vuelve a pedir asistencia tras cambiar de estado aparece con su último check-in (ubicación y fecha), y
+     * su solicitud es la única que tiene en el evento, aunque la originara el primer check-in (RN-MS04-11)
+     */
+    @Test
+    void asistenciaMuestraElUltimoCheckinYLaSolicitudUnicaDelUsuario() {
+        Evento evento = evento(EstadoEvento.EN_EJECUCION);
+        Checkin primero = requiereAsistencia(evento.getId(), usuario(1), TipoUbicacion.EDIFICIO, EDIFICIO_1);
+        solicitar(primero, null, EstadoEnvio.RECHAZADA);
+        aSalvo(evento.getId(), usuario(1), PUNTO_A);
+        Checkin ultimo = requiereAsistencia(evento.getId(), usuario(1), TipoUbicacion.EDIFICIO, EDIFICIO_2);
+
+        PageResponse<PersonaAsistencia> pagina = service.asistencia(evento.getId(), 0, 20, coordinador);
+
+        assertEquals(1, pagina.totalElementos());
+        assertEquals(new Ubicacion(TipoUbicacion.EDIFICIO, EDIFICIO_2), pagina.contenido().get(0).ubicacion());
+        assertEquals(ultimo.getRegistradoEn(), pagina.contenido().get(0).fechaReporte());
+        assertEquals(new SolicitudAsistenciaResumen(null, EstadoEnvio.RECHAZADA),
+                pagina.contenido().get(0).solicitudAsistencia());
+    }
+
+    /**
+     * Pagina la lista en el mismo orden: el tamaño recorta cada página y los totales cuentan a todas las personas
+     */
+    @Test
+    void asistenciaPaginaLaListaDelMasAntiguoAlMasReciente() {
+        Evento evento = evento(EstadoEvento.EN_EJECUCION);
+        for (int i = 1; i <= 5; i++) {
+            Checkin checkin = requiereAsistencia(evento.getId(), usuario(i), TipoUbicacion.EDIFICIO, EDIFICIO_1);
+            solicitar(checkin, "SOL-" + i, EstadoEnvio.ENVIADA);
+        }
+
+        PageResponse<PersonaAsistencia> primera = service.asistencia(evento.getId(), 0, 2, coordinador);
+        PageResponse<PersonaAsistencia> ultima = service.asistencia(evento.getId(), 2, 2, coordinador);
+        PageResponse<PersonaAsistencia> masAlla = service.asistencia(evento.getId(), 3, 2, coordinador);
+
+        assertEquals(List.of(usuario(1), usuario(2)),
+                primera.contenido().stream().map(PersonaAsistencia::usuarioId).toList());
+        assertEquals(List.of(usuario(5)), ultima.contenido().stream().map(PersonaAsistencia::usuarioId).toList());
+        assertEquals(5, primera.totalElementos());
+        assertEquals(3, primera.totalPaginas());
+        assertTrue(masAlla.contenido().isEmpty());
+        assertEquals(5, masAlla.totalElementos());
+    }
+
+    /**
+     * El BRIGADISTA solo recibe a las personas cuya ubicación (tipo e id) está en sus zonas, y el COORDINADOR recibe
+     * a todas: quien está a salvo en un punto de sus zonas no aparece porque no pidió asistencia
+     */
+    @Test
+    void asistenciaDelBrigadistaListaSoloSusZonas() {
+        Evento evento = evento(EstadoEvento.EN_EJECUCION);
+        requiereAsistencia(evento.getId(), usuario(1), TipoUbicacion.EDIFICIO, EDIFICIO_1);
+        requiereAsistencia(evento.getId(), usuario(2), TipoUbicacion.EDIFICIO, EDIFICIO_2);
+        requiereAsistencia(evento.getId(), usuario(3), TipoUbicacion.ESPACIO, ESPACIO_1);
+        requiereAsistencia(evento.getId(), usuario(4), TipoUbicacion.PUNTO_ENCUENTRO, PUNTO_B);
+        requiereAsistencia(evento.getId(), usuario(5), TipoUbicacion.PUNTO_ENCUENTRO, PUNTO_A);
+        aSalvo(evento.getId(), usuario(6), PUNTO_A);
+        requiereAsistencia(evento.getId(), usuario(7), TipoUbicacion.ESPACIO, EDIFICIO_1);
+        when(zonasBrigadista.zonasDe(brigadista))
+                .thenReturn(new ZonasAsignadas(Set.of(EDIFICIO_1), Set.of(ESPACIO_1), Set.of(PUNTO_A)));
+
+        PageResponse<PersonaAsistencia> delBrigadista = service.asistencia(evento.getId(), 0, 20, brigadista);
+        PageResponse<PersonaAsistencia> delCoordinador = service.asistencia(evento.getId(), 0, 20, coordinador);
+
+        assertEquals(List.of(usuario(1), usuario(3), usuario(5)),
+                delBrigadista.contenido().stream().map(PersonaAsistencia::usuarioId).toList());
+        assertEquals(3, delBrigadista.totalElementos());
+        assertEquals(List.of(usuario(1), usuario(2), usuario(3), usuario(4), usuario(5), usuario(7)),
+                delCoordinador.contenido().stream().map(PersonaAsistencia::usuarioId).toList());
+        assertEquals(6, delCoordinador.totalElementos());
+    }
+
+    /**
+     * Un BRIGADISTA sin zonas asignadas en MS05 recibe la lista vacía
+     */
+    @Test
+    void asistenciaDelBrigadistaSinZonasEsVacia() {
+        Evento evento = evento(EstadoEvento.EN_EJECUCION);
+        requiereAsistencia(evento.getId(), usuario(1), TipoUbicacion.EDIFICIO, EDIFICIO_1);
+        when(zonasBrigadista.zonasDe(brigadista)).thenReturn(new ZonasAsignadas(Set.of(), Set.of(), Set.of()));
+
+        PageResponse<PersonaAsistencia> pagina = service.asistencia(evento.getId(), 0, 20, brigadista);
+
+        assertTrue(pagina.contenido().isEmpty());
+        assertEquals(0, pagina.totalElementos());
+    }
+
+    /**
+     * A1: si nadie requiere asistencia, la lista es vacía y no falla
+     */
+    @Test
+    void siNadieRequiereAsistenciaLaListaEsVacia() {
+        Evento evento = evento(EstadoEvento.EN_EJECUCION);
+        aSalvo(evento.getId(), usuario(1), PUNTO_A);
+        sinUbicacion(evento.getId(), usuario(2), EstadoCheckin.EVACUATING);
+
+        PageResponse<PersonaAsistencia> pagina = service.asistencia(evento.getId(), 0, 20, coordinador);
+
+        assertTrue(pagina.contenido().isEmpty());
+        assertEquals(0, pagina.totalElementos());
+        assertEquals(0, pagina.totalPaginas());
+    }
+
+    /**
+     * Los check-ins de otro evento no cuentan en la lista
+     */
+    @Test
+    void asistenciaNoMezclaLosCheckinsDeOtroEvento() {
+        Evento evento = evento(EstadoEvento.EN_EJECUCION);
+        Evento otro = evento(EstadoEvento.EN_EJECUCION);
+        requiereAsistencia(otro.getId(), usuario(1), TipoUbicacion.EDIFICIO, EDIFICIO_1);
+
+        PageResponse<PersonaAsistencia> deEste = service.asistencia(evento.getId(), 0, 20, coordinador);
+        PageResponse<PersonaAsistencia> deOtro = service.asistencia(otro.getId(), 0, 20, coordinador);
+
+        assertEquals(0, deEste.totalElementos());
+        assertEquals(1, deOtro.totalElementos());
+    }
+
+    /**
+     * La lista se consulta con el evento en cualquier estado
+     *
+     * @param estado estado del evento
+     */
+    @ParameterizedTest
+    @EnumSource(EstadoEvento.class)
+    void asistenciaFuncionaConElEventoEnCualquierEstado(EstadoEvento estado) {
+        Evento evento = evento(estado);
+        requiereAsistencia(evento.getId(), usuario(1), TipoUbicacion.EDIFICIO, EDIFICIO_1);
+
+        PageResponse<PersonaAsistencia> pagina = service.asistencia(evento.getId(), 0, 20, coordinador);
+
+        assertEquals(1, pagina.totalElementos());
+    }
+
+    /**
+     * La búsqueda de solicitudes por usuarios trae solo las del evento y de los usuarios pedidos
+     */
+    @Test
+    void lasSolicitudesSeBuscanPorEventoYPorUsuarios() {
+        Evento evento = evento(EstadoEvento.EN_EJECUCION);
+        Evento otro = evento(EstadoEvento.EN_EJECUCION);
+        Checkin deAna = requiereAsistencia(evento.getId(), usuario(1), TipoUbicacion.EDIFICIO, EDIFICIO_1);
+        Checkin deBeto = requiereAsistencia(evento.getId(), usuario(2), TipoUbicacion.EDIFICIO, EDIFICIO_1);
+        Checkin deAnaEnOtro = requiereAsistencia(otro.getId(), usuario(1), TipoUbicacion.EDIFICIO, EDIFICIO_1);
+        solicitar(deAna, "SOL-1", EstadoEnvio.ENVIADA);
+        solicitar(deBeto, "SOL-2", EstadoEnvio.ENVIADA);
+        solicitar(deAnaEnOtro, "SOL-3", EstadoEnvio.ENVIADA);
+
+        List<SolicitudAsistencia> encontradas = solicitudes.findByEventoIdAndUsuarioIdIn(evento.getId(),
+                List.of(usuario(1)));
+
+        assertEquals(1, encontradas.size());
+        assertEquals("SOL-1", encontradas.get(0).getSolicitudMs05Id());
+        assertEquals(usuario(1), encontradas.get(0).getUsuarioId());
     }
 }
