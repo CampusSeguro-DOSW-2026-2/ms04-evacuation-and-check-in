@@ -3,6 +3,7 @@ package edu.eci.dosw.campusseguro.evacuation.evacuation_service.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 import java.time.Clock;
@@ -13,6 +14,7 @@ import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -28,12 +30,14 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.PoblacionObjetivoClient;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.UsuarioNombresClient;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.ZonasBrigadistaClient;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.ZonasBrigadistaClient.ZonasAsignadas;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.CheckinResumen;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.Consolidado;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.PageResponse;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.Pendiente;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.TotalPorPunto;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.Checkin;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.EstadoCheckin;
@@ -48,9 +52,9 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.PostgresT
 import jakarta.persistence.EntityManager;
 
 /**
- * RF-MS04-06 contra PostgreSQL real con el esquema de database/: el consolidado y el listado salen de la vista
- * v_checkins_vigentes (un solo estado por persona), los totales cumplen RN-MS04-13, el BRIGADISTA solo ve sus zonas
- * (RN-MS04-14) y consultar no cambia ningún dato. Necesita Docker
+ * RF-MS04-06 y RF-MS04-07 contra PostgreSQL real con el esquema de database/: el consolidado, el listado y los
+ * pendientes salen de la vista v_checkins_vigentes (un solo estado por persona), los totales cumplen RN-MS04-13, el
+ * BRIGADISTA solo ve sus zonas (RN-MS04-14) y consultar no cambia ningún dato. Necesita Docker
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -98,6 +102,9 @@ class DashboardIntegracionTest {
     @MockitoBean
     private ZonasBrigadistaClient zonasBrigadista;
 
+    @MockitoBean
+    private PoblacionObjetivoClient poblacionObjetivo;
+
     private final RequesterIdentity coordinador = new RequesterIdentity(UUID.randomUUID(),
             EnumSet.of(Rol.COORDINADOR));
     private final RequesterIdentity brigadista = new RequesterIdentity(BRIGADISTA, EnumSet.of(Rol.BRIGADISTA));
@@ -119,7 +126,8 @@ class DashboardIntegracionTest {
     }
 
     /**
-     * Crea un evento en el estado indicado, con las fechas que exigen las restricciones del esquema
+     * Crea un evento en el estado indicado, con las fechas que exigen las restricciones del esquema: sin inicio en
+     * BORRADOR y con cierre en FINALIZADO
      *
      * @param estado estado del evento
      * @return el evento guardado
@@ -129,7 +137,9 @@ class DashboardIntegracionTest {
         evento.setNombre("Simulacro de evacuación bloque A");
         evento.setSimulacro(true);
         evento.setEstado(estado);
-        evento.setFechaInicio(Instant.parse("2026-11-20T15:00:00Z"));
+        if (estado != EstadoEvento.BORRADOR) {
+            evento.setFechaInicio(Instant.parse("2026-11-20T15:00:00Z"));
+        }
         if (estado == EstadoEvento.FINALIZADO) {
             evento.setFechaCierre(Instant.parse("2026-11-20T16:00:00Z"));
         }
@@ -523,5 +533,163 @@ class DashboardIntegracionTest {
         assertTrue(pagina.contenido().isEmpty());
         assertEquals(0, pagina.totalElementos());
         assertEquals(0, pagina.totalPaginas());
+    }
+
+    // ---------------------------------------------------------------- pendientes
+
+    /**
+     * Simula la población objetivo que entrega MS01 para los roles del evento
+     *
+     * @param usuarios usuarios activos con un rol convocado
+     */
+    private void poblacion(UUID... usuarios) {
+        when(poblacionObjetivo.usuariosActivosPorRoles(eq(List.of("ESTUDIANTE")), any(Instant.class),
+                eq(coordinador))).thenReturn(Optional.of(Set.of(usuarios)));
+    }
+
+    /**
+     * Quien tiene cualquiera de los cuatro estados vigentes deja de ser pendiente, y la población se reparte entre
+     * pendientes y reportados sin perder a nadie
+     */
+    @Test
+    void pendientesExcluyenALosQueTienenCualquieraDeLosCuatroEstados() {
+        Evento evento = evento(EstadoEvento.EN_EJECUCION);
+        poblacion(usuario(1), usuario(2), usuario(3), usuario(4), usuario(5), usuario(6));
+        aSalvo(evento.getId(), usuario(1), PUNTO_A);
+        sinUbicacion(evento.getId(), usuario(2), EstadoCheckin.EVACUATING);
+        requiereAsistencia(evento.getId(), usuario(3), TipoUbicacion.EDIFICIO, EDIFICIO_1);
+        sinUbicacion(evento.getId(), usuario(4), EstadoCheckin.OFF_CAMPUS);
+
+        PageResponse<Pendiente> pendientes = service.pendientes(evento.getId(), 0, 20, coordinador);
+        Consolidado consolidado = service.consolidado(evento.getId(), coordinador);
+
+        assertEquals(List.of(usuario(5), usuario(6)),
+                pendientes.contenido().stream().map(Pendiente::usuarioId).toList());
+        assertEquals("Usuario 00000005", pendientes.contenido().get(0).nombre());
+        assertEquals(2, pendientes.totalElementos());
+        assertEquals(6, pendientes.totalElementos() + consolidado.totalReportados());
+    }
+
+    /**
+     * Quien cambia de estado varias veces sigue sin ser pendiente y no altera la lista
+     */
+    @Test
+    void quienCambiaDeEstadoSigueSinSerPendiente() {
+        Evento evento = evento(EstadoEvento.EN_EJECUCION);
+        poblacion(usuario(1), usuario(2));
+        aSalvo(evento.getId(), usuario(1), PUNTO_A);
+        sinUbicacion(evento.getId(), usuario(1), EstadoCheckin.EVACUATING);
+        sinUbicacion(evento.getId(), usuario(1), EstadoCheckin.OFF_CAMPUS);
+
+        PageResponse<Pendiente> pendientes = service.pendientes(evento.getId(), 0, 20, coordinador);
+
+        assertEquals(List.of(usuario(2)), pendientes.contenido().stream().map(Pendiente::usuarioId).toList());
+    }
+
+    /**
+     * Al reportar un estado la persona deja de aparecer como pendiente
+     */
+    @Test
+    void alReportarLaPersonaDejaDeSerPendiente() {
+        Evento evento = evento(EstadoEvento.EN_EJECUCION);
+        poblacion(usuario(1), usuario(2));
+
+        PageResponse<Pendiente> antes = service.pendientes(evento.getId(), 0, 20, coordinador);
+        sinUbicacion(evento.getId(), usuario(2), EstadoCheckin.OFF_CAMPUS);
+        PageResponse<Pendiente> despues = service.pendientes(evento.getId(), 0, 20, coordinador);
+
+        assertEquals(2, antes.totalElementos());
+        assertEquals(List.of(usuario(1)), despues.contenido().stream().map(Pendiente::usuarioId).toList());
+    }
+
+    /**
+     * Los check-ins de otro evento no cuentan: el usuario sigue pendiente en este
+     */
+    @Test
+    void losCheckinsDeOtroEventoNoQuitanPendientes() {
+        Evento evento = evento(EstadoEvento.EN_EJECUCION);
+        Evento otro = evento(EstadoEvento.EN_EJECUCION);
+        poblacion(usuario(1), usuario(2));
+        aSalvo(otro.getId(), usuario(1), PUNTO_A);
+        aSalvo(evento.getId(), usuario(2), PUNTO_A);
+
+        PageResponse<Pendiente> pendientes = service.pendientes(evento.getId(), 0, 20, coordinador);
+
+        assertEquals(List.of(usuario(1)), pendientes.contenido().stream().map(Pendiente::usuarioId).toList());
+    }
+
+    /**
+     * El repositorio entrega a cada usuario con estado vigente una sola vez, aunque tenga varios check-ins, y solo
+     * los del evento pedido
+     */
+    @Test
+    void elRepositorioEntregaUnaVezACadaUsuarioConEstadoVigente() {
+        Evento evento = evento(EstadoEvento.EN_EJECUCION);
+        Evento otro = evento(EstadoEvento.EN_EJECUCION);
+        aSalvo(evento.getId(), usuario(1), PUNTO_A);
+        sinUbicacion(evento.getId(), usuario(1), EstadoCheckin.EVACUATING);
+        sinUbicacion(evento.getId(), usuario(1), EstadoCheckin.OFF_CAMPUS);
+        aSalvo(evento.getId(), usuario(2), PUNTO_B);
+        aSalvo(otro.getId(), usuario(3), PUNTO_B);
+
+        List<UUID> usuarios = checkins.buscarUsuariosConEstadoVigente(evento.getId());
+
+        assertEquals(Set.of(usuario(1), usuario(2)), Set.copyOf(usuarios));
+        assertEquals(2, usuarios.size());
+        assertTrue(checkins.buscarUsuariosConEstadoVigente(UUID.randomUUID()).isEmpty());
+    }
+
+    /**
+     * Pagina los pendientes ordenados por id con el total de toda la lista
+     */
+    @Test
+    void pendientesSePaginanOrdenadosPorId() {
+        Evento evento = evento(EstadoEvento.EN_EJECUCION);
+        poblacion(usuario(5), usuario(3), usuario(1), usuario(4), usuario(2));
+        aSalvo(evento.getId(), usuario(4), PUNTO_A);
+
+        PageResponse<Pendiente> primera = service.pendientes(evento.getId(), 0, 2, coordinador);
+        PageResponse<Pendiente> segunda = service.pendientes(evento.getId(), 1, 2, coordinador);
+        PageResponse<Pendiente> tercera = service.pendientes(evento.getId(), 2, 2, coordinador);
+
+        assertEquals(List.of(usuario(1), usuario(2)),
+                primera.contenido().stream().map(Pendiente::usuarioId).toList());
+        assertEquals(List.of(usuario(3), usuario(5)),
+                segunda.contenido().stream().map(Pendiente::usuarioId).toList());
+        assertTrue(tercera.contenido().isEmpty());
+        assertEquals(4, primera.totalElementos());
+        assertEquals(2, primera.totalPaginas());
+    }
+
+    /**
+     * El BRIGADISTA recibe una lista vacía aunque haya pendientes, y consultar no cambia ningún dato
+     */
+    @Test
+    void elBrigadistaNoRecibePendientesYConsultarNoCambiaDatos() {
+        Evento evento = evento(EstadoEvento.EN_EJECUCION);
+        aSalvo(evento.getId(), usuario(1), PUNTO_A);
+        long antes = contarCheckins();
+
+        PageResponse<Pendiente> delBrigadista = service.pendientes(evento.getId(), 0, 20, brigadista);
+
+        assertTrue(delBrigadista.contenido().isEmpty());
+        assertEquals(0, delBrigadista.totalElementos());
+        assertEquals(antes, contarCheckins());
+    }
+
+    /**
+     * Los pendientes se consultan con el evento en cualquier estado
+     *
+     * @param estado estado del evento
+     */
+    @ParameterizedTest
+    @EnumSource(EstadoEvento.class)
+    void pendientesFuncionanConElEventoEnCualquierEstado(EstadoEvento estado) {
+        Evento evento = evento(estado);
+        poblacion(usuario(1));
+
+        PageResponse<Pendiente> pendientes = service.pendientes(evento.getId(), 0, 20, coordinador);
+
+        assertEquals(1, pendientes.totalElementos());
     }
 }

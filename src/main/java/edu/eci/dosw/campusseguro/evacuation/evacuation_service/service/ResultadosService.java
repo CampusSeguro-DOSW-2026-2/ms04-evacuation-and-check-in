@@ -93,9 +93,7 @@ public class ResultadosService {
      * la consulta si es anterior o si el evento aún no tiene fecha de inicio
      */
     Instant corteDePoblacion(Evento evento) {
-        Instant ahora = clock.instant();
-        Instant inicio = evento.getFechaInicio();
-        return inicio == null || ahora.isBefore(inicio) ? ahora : inicio;
+        return evento.corteDePoblacion(clock.instant());
     }
 
     private Resultados armar(UUID eventoId, Set<UUID> poblacion) {

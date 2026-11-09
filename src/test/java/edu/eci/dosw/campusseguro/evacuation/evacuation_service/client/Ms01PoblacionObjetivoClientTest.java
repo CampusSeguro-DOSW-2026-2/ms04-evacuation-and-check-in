@@ -17,7 +17,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.function.Function;
+import java.util.function.BiFunction;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -34,7 +34,8 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.util.CorrelationI
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Cliente de MS01 para la población objetivo, contra un servidor HTTP local que hace de Gateway
+ * Cliente de MS01 para la población objetivo, contra un servidor HTTP local que hace de Gateway con el contrato de
+ * RF-MS01-09 (un rol por consulta, usuarios activos e inactivos)
  */
 class Ms01PoblacionObjetivoClientTest {
 
@@ -46,7 +47,7 @@ class Ms01PoblacionObjetivoClientTest {
 
     private HttpServer servidor;
     private final List<HttpExchangeCapturado> peticiones = new CopyOnWriteArrayList<>();
-    private Function<Integer, Respuesta> respuestas;
+    private BiFunction<String, Integer, Respuesta> respuestas;
 
     private record Respuesta(int status, String cuerpo) {
     }
@@ -70,8 +71,9 @@ class Ms01PoblacionObjetivoClientTest {
     private void atender(HttpExchange exchange) throws IOException {
         String query = exchange.getRequestURI().getRawQuery();
         peticiones.add(new HttpExchangeCapturado(query, exchange.getRequestHeaders()));
-        int page = Integer.parseInt(query.replaceAll(".*[?&]?page=(\\d+).*", "$1"));
-        Respuesta respuesta = respuestas.apply(page);
+        String rol = query.replaceAll("^rol=([A-Z_]+).*", "$1");
+        int page = Integer.parseInt(query.replaceAll(".*[?&]page=(\\d+).*", "$1"));
+        Respuesta respuesta = respuestas.apply(rol, page);
         byte[] cuerpo = respuesta.cuerpo().getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().add("Content-Type", "application/json");
         exchange.sendResponseHeaders(respuesta.status(), cuerpo.length);
@@ -89,75 +91,171 @@ class Ms01PoblacionObjetivoClientTest {
         return cliente("http://127.0.0.1:" + servidor.getAddress().getPort() + "/");
     }
 
-    private static String pagina(int page, int totalPaginas, UUID... ids) {
-        StringBuilder contenido = new StringBuilder();
-        for (UUID id : ids) {
-            if (!contenido.isEmpty()) {
-                contenido.append(',');
-            }
-            contenido.append("{\"id\":\"").append(id).append("\",\"primer_nombre\":\"Ana\",\"estado\":\"ACTIVO\"}");
-        }
-        return "{\"contenido\":[" + contenido + "],\"page\":" + page + ",\"size\":100,\"total_elementos\":"
-                + ids.length + ",\"total_paginas\":" + totalPaginas + "}";
+    private static String usuario(UUID id, String estado) {
+        return "{\"id\":\"" + id + "\",\"primer_nombre\":\"Ana\",\"estado\":\"" + estado + "\"}";
     }
 
+    private static String pagina(int page, int totalPaginas, String... usuarios) {
+        return "{\"contenido\":[" + String.join(",", usuarios) + "],\"page\":" + page
+                + ",\"size\":100,\"total_elementos\":" + usuarios.length + ",\"total_paginas\":"
+                + totalPaginas + "}";
+    }
+
+    private static String activos(int page, int totalPaginas, UUID... ids) {
+        String[] usuarios = new String[ids.length];
+        for (int i = 0; i < ids.length; i++) {
+            usuarios[i] = usuario(ids[i], "ACTIVO");
+        }
+        return pagina(page, totalPaginas, usuarios);
+    }
+
+    /**
+     * Pide cada rol por separado, recorre todas sus páginas y cuenta una sola vez a quien tiene varios roles
+     */
     @Test
-    void recorreTodasLasPaginasYCuentaUnaVezACadaPersona() {
-        Map<Integer, String> paginas = Map.of(
-                0, pagina(0, 2, ANA, BETO),
-                1, pagina(1, 2, BETO, CARLA));
-        respuestas = page -> new Respuesta(200, paginas.get(page));
+    void recorreTodasLasPaginasDeCadaRolYCuentaUnaVezACadaPersona() {
+        Map<String, String> paginas = Map.of(
+                "ESTUDIANTE0", activos(0, 2, ANA, BETO),
+                "ESTUDIANTE1", activos(1, 2, CARLA),
+                "PROFESOR0", activos(0, 1, BETO));
+        respuestas = (rol, page) -> new Respuesta(200, paginas.get(rol + page));
 
         Optional<Set<UUID>> poblacion = cliente().usuariosActivosPorRoles(List.of("PROFESOR", "ESTUDIANTE"),
                 CORTE, AUDITOR);
 
         assertEquals(Optional.of(Set.of(ANA, BETO, CARLA)), poblacion);
-        assertEquals(2, peticiones.size());
+        assertEquals(3, peticiones.size());
     }
 
+    /**
+     * Envía rol, corte y paginación del contrato de MS01, la clave de servicio, la correlación y la identidad
+     */
     @Test
-    void enviaLosFiltrosLaClaveDeServicioLaCorrelacionYLaIdentidad() {
-        respuestas = page -> new Respuesta(200, pagina(0, 1, ANA));
+    void enviaElRolElCorteLaClaveDeServicioLaCorrelacionYLaIdentidad() {
+        respuestas = (rol, page) -> new Respuesta(200, activos(0, 1, ANA));
         MDC.put(CorrelationIds.MDC_KEY, "c19b472d-7a2a-4d3b-a12b-abcdef123456");
 
         cliente().usuariosActivosPorRoles(List.of("PROFESOR", "ESTUDIANTE"), CORTE, AUDITOR);
 
         HttpExchangeCapturado peticion = peticiones.get(0);
-        assertEquals("roles=ESTUDIANTE%2CPROFESOR&estado=ACTIVO&creados_antes_de=2026-11-20T15%3A00%3A00Z"
-                + "&page=0&size=100", peticion.query());
+        assertEquals("rol=ESTUDIANTE&creado_antes=2026-11-20T15%3A00%3A00Z&page=0&size=100", peticion.query());
+        assertEquals("rol=PROFESOR&creado_antes=2026-11-20T15%3A00%3A00Z&page=0&size=100",
+                peticiones.get(1).query());
         assertEquals("clave-de-servicio-ms04", peticion.headers().getFirst("X-Service-Key"));
         assertEquals("c19b472d-7a2a-4d3b-a12b-abcdef123456", peticion.headers().getFirst("X-Correlation-ID"));
         assertEquals(ANA.toString(), peticion.headers().getFirst("X-User-Id"));
         assertEquals("AUDITOR", peticion.headers().getFirst("X-User-Role"));
     }
 
+    /**
+     * Sin corte no envía el parámetro de creación
+     */
+    @Test
+    void sinCorteNoEnviaElParametroDeCreacion() {
+        respuestas = (rol, page) -> new Respuesta(200, activos(0, 1, ANA));
+
+        cliente().usuariosActivosPorRoles(List.of("ESTUDIANTE"), null, AUDITOR);
+
+        assertEquals("rol=ESTUDIANTE&page=0&size=100", peticiones.get(0).query());
+    }
+
+    /**
+     * MS01 entrega también a los usuarios inactivos y MS04 solo cuenta a los activos
+     */
+    @Test
+    void soloCuentaALosUsuariosActivos() {
+        respuestas = (rol, page) -> new Respuesta(200,
+                pagina(0, 1, usuario(ANA, "ACTIVO"), usuario(BETO, "INACTIVO"), usuario(CARLA, "ACTIVO")));
+
+        Optional<Set<UUID>> poblacion = cliente().usuariosActivosPorRoles(List.of("ESTUDIANTE"), CORTE, AUDITOR);
+
+        assertEquals(Optional.of(Set.of(ANA, CARLA)), poblacion);
+    }
+
+    /**
+     * Un rol repetido en la lista se consulta una sola vez
+     */
+    @Test
+    void unRolRepetidoSePideUnaSolaVez() {
+        respuestas = (rol, page) -> new Respuesta(200, activos(0, 1, ANA));
+
+        cliente().usuariosActivosPorRoles(List.of("ESTUDIANTE", "ESTUDIANTE"), CORTE, AUDITOR);
+
+        assertEquals(1, peticiones.size());
+    }
+
+    /**
+     * Si MS01 responde con error, la población queda como no disponible
+     */
     @Test
     void unErrorDeMs01DejaLaPoblacionComoNoDisponible() {
-        respuestas = page -> new Respuesta(503, "{\"codigo\":\"DEPENDENCIA_NO_DISPONIBLE\"}");
+        respuestas = (rol, page) -> new Respuesta(503, "{\"codigo\":\"DEPENDENCIA_NO_DISPONIBLE\"}");
 
         assertTrue(cliente().usuariosActivosPorRoles(List.of("ESTUDIANTE"), CORTE, AUDITOR).isEmpty());
     }
 
+    /**
+     * Si MS01 rechaza la consulta con un 400, la población queda como no disponible
+     */
+    @Test
+    void unaConsultaRechazadaPorMs01DejaLaPoblacionComoNoDisponible() {
+        respuestas = (rol, page) -> new Respuesta(400, "{\"codigo\":\"VALIDACION\"}");
+
+        assertTrue(cliente().usuariosActivosPorRoles(List.of("ESTUDIANTE"), CORTE, AUDITOR).isEmpty());
+    }
+
+    /**
+     * Un cuerpo que no es JSON deja la población como no disponible
+     */
     @Test
     void unCuerpoInvalidoDejaLaPoblacionComoNoDisponible() {
-        respuestas = page -> new Respuesta(200, "no es json");
+        respuestas = (rol, page) -> new Respuesta(200, "no es json");
 
         assertTrue(cliente().usuariosActivosPorRoles(List.of("ESTUDIANTE"), CORTE, AUDITOR).isEmpty());
     }
 
+    /**
+     * Si una página falla, no se entrega una población incompleta
+     */
     @Test
     void siUnaPaginaFallaNoSeEntregaUnaPoblacionIncompleta() {
-        respuestas = page -> page == 0 ? new Respuesta(200, pagina(0, 2, ANA)) : new Respuesta(500, "{}");
+        respuestas = (rol, page) -> {
+            if (page == 0) {
+                return new Respuesta(200, activos(0, 2, ANA));
+            }
+            return new Respuesta(500, "{}");
+        };
 
         assertTrue(cliente().usuariosActivosPorRoles(List.of("ESTUDIANTE"), CORTE, AUDITOR).isEmpty());
     }
 
+    /**
+     * Si falla la consulta de uno de los roles, no se entrega una población incompleta
+     */
+    @Test
+    void siFallaUnRolNoSeEntregaUnaPoblacionIncompleta() {
+        respuestas = (rol, page) -> {
+            if ("ESTUDIANTE".equals(rol)) {
+                return new Respuesta(200, activos(0, 1, ANA));
+            }
+            return new Respuesta(500, "{}");
+        };
+
+        assertTrue(cliente().usuariosActivosPorRoles(List.of("ESTUDIANTE", "PROFESOR"), CORTE, AUDITOR).isEmpty());
+    }
+
+    /**
+     * Sin Gateway configurado la población no está disponible y no se hace ninguna llamada
+     */
     @Test
     void sinGatewayConfiguradoLaPoblacionNoEstaDisponible() {
         assertTrue(cliente("").usuariosActivosPorRoles(List.of("ESTUDIANTE"), CORTE, AUDITOR).isEmpty());
         assertTrue(peticiones.isEmpty());
     }
 
+    /**
+     * Un Gateway que no responde deja la población como no disponible
+     */
     @Test
     void unGatewayQueNoRespondeDejaLaPoblacionComoNoDisponible() {
         servidor.stop(0);
@@ -165,6 +263,9 @@ class Ms01PoblacionObjetivoClientTest {
         assertTrue(cliente().usuariosActivosPorRoles(List.of("ESTUDIANTE"), CORTE, AUDITOR).isEmpty());
     }
 
+    /**
+     * Sin roles convocados la población es vacía y no se llama a MS01
+     */
     @Test
     void sinRolesLaPoblacionEstaVaciaSinLlamarAMs01() {
         assertEquals(Optional.of(Set.of()), cliente().usuariosActivosPorRoles(List.of(), CORTE, AUDITOR));
