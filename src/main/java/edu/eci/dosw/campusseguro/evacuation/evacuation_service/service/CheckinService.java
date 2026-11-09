@@ -19,15 +19,18 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.PuntoEncue
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.CheckinRequest;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.CheckinResponse;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.ResultadoCheckin;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.SolicitudAsistenciaResumen;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.Ubicacion;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.Checkin;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.EstadoCheckin;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.Evento;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.SolicitudAsistencia;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.exception.ApiException;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.exception.ErrorCode;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.CheckinRepository;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.EventoRepository;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.RequesterIdentity;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.service.SolicitudAsistenciaService.RegistroSolicitud;
 
 /**
  * RF-MS04-02 Registrar check-in y RF-MS04-03 Mantener y actualizar el estado vigente (Jira KAIR-573 y KAIR-574,
@@ -54,14 +57,17 @@ public class CheckinService {
     private final CheckinRepository checkins;
     private final PuntoEncuentroClient puntosEncuentro;
     private final AuditRecorder auditoria;
+    private final SolicitudAsistenciaService solicitudes;
     private final TransactionTemplate transaccion;
 
     public CheckinService(EventoRepository eventos, CheckinRepository checkins, PuntoEncuentroClient puntosEncuentro,
-            AuditRecorder auditoria, PlatformTransactionManager transactionManager) {
+            AuditRecorder auditoria, SolicitudAsistenciaService solicitudes,
+            PlatformTransactionManager transactionManager) {
         this.eventos = eventos;
         this.checkins = checkins;
         this.puntosEncuentro = puntosEncuentro;
         this.auditoria = auditoria;
+        this.solicitudes = solicitudes;
         this.transaccion = new TransactionTemplate(transactionManager);
     }
 
@@ -95,7 +101,7 @@ public class CheckinService {
             throw e;
         }
         auditarExito(registro, requester, correlationId);
-        return new ResultadoCheckin(aRespuesta(registro.checkin()), registro.creado());
+        return new ResultadoCheckin(aRespuesta(registro.checkin(), registro.solicitud()), registro.creado());
     }
 
     /**
@@ -147,16 +153,25 @@ public class CheckinService {
         verificarEvento(eventos.buscarParaCheckin(eventoId), requester);
         Optional<Checkin> vigente = checkins.buscarVigente(eventoId, requester.userId());
         if (vigente.isPresent() && repiteElVigente(vigente.get(), request)) {
-            return new Registro(vigente.get(), false, vigente.get());
+            SolicitudAsistencia solicitud = vigente.get().getEstado() == EstadoCheckin.NEEDS_ASSISTANCE
+                    ? solicitudes.buscar(eventoId, requester.userId()).orElse(null)
+                    : null;
+            return new Registro(vigente.get(), false, vigente.get(), solicitud, false);
         }
         Checkin nuevo = checkins.save(nuevoCheckin(eventoId, request, requester));
         checkins.flush();
-        return new Registro(nuevo, vigente.isEmpty(), vigente.orElse(null));
+        if (nuevo.getEstado() == EstadoCheckin.NEEDS_ASSISTANCE) {
+            // RF-MS04-04: la solicitud se registra en la misma transacción que el check-in, en PENDIENTE_ENVIO
+            RegistroSolicitud solicitud = solicitudes.registrar(nuevo);
+            return new Registro(nuevo, vigente.isEmpty(), vigente.orElse(null), solicitud.solicitud(),
+                    solicitud.nueva());
+        }
+        return new Registro(nuevo, vigente.isEmpty(), vigente.orElse(null), null, false);
     }
 
     /**
      * Un reporte repite el vigente si trae el mismo estado; con Estoy a salvo, además, el mismo punto de encuentro.
-     * Requiero asistencia con otra ubicación sigue siendo el mismo estado (2_requisitos-funcionales.md, RF-MS04-03)
+     * Requiero asistencia con otra ubicación sigue siendo el mismo estado (1_requirements.md, RF-MS04-03, A3)
      */
     static boolean repiteElVigente(Checkin vigente, CheckinRequest request) {
         if (vigente.getEstado() != request.estado()) {
@@ -203,14 +218,21 @@ public class CheckinService {
     }
 
     /**
-     * Respuesta del check-in. La solicitud de asistencia de un NEEDS_ASSISTANCE la agrega RF-MS04-04
+     * Respuesta del check-in. Con Requiero asistencia incluye el id de la solicitud en MS05 (null mientras no llegue)
+     * y su estado de envío (RF-MS04-04, paso 7)
      */
-    private static CheckinResponse aRespuesta(Checkin checkin) {
+    private static CheckinResponse aRespuesta(Checkin checkin, SolicitudAsistencia solicitud) {
         Ubicacion ubicacion = checkin.getUbicacionTipo() == null
                 ? null
                 : new Ubicacion(checkin.getUbicacionTipo(), checkin.getUbicacionId());
         return new CheckinResponse(checkin.getId(), checkin.getEventoId(), checkin.getEstado(),
-                checkin.getPuntoEncuentroId(), ubicacion, null, checkin.getRegistradoEn());
+                checkin.getPuntoEncuentroId(), ubicacion, resumir(solicitud), checkin.getRegistradoEn());
+    }
+
+    private static SolicitudAsistenciaResumen resumir(SolicitudAsistencia solicitud) {
+        return solicitud == null
+                ? null
+                : new SolicitudAsistenciaResumen(solicitud.getSolicitudMs05Id(), solicitud.getEstadoEnvio());
     }
 
     /**
@@ -219,7 +241,10 @@ public class CheckinService {
      * @param checkin check-in nuevo, o el vigente si el reporte lo repetía
      * @param creado true si es el primer check-in del usuario en el evento
      * @param anterior estado vigente antes del reporte; null en el primer check-in
+     * @param solicitud solicitud de asistencia del usuario en el evento si el check-in es NEEDS_ASSISTANCE
+     * @param solicitudNueva true si la solicitud se creó con este check-in y hay que enviarla a MS05
      */
-    private record Registro(Checkin checkin, boolean creado, Checkin anterior) {
+    private record Registro(Checkin checkin, boolean creado, Checkin anterior, SolicitudAsistencia solicitud,
+            boolean solicitudNueva) {
     }
 }
