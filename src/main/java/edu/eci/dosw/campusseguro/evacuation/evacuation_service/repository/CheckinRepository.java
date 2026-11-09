@@ -224,6 +224,43 @@ public interface CheckinRepository extends Repository<Checkin, UUID> {
     }
 
     /**
+     * Personas cuyo estado vigente es Requiero asistencia, del reporte más antiguo al más reciente (RF-MS04-08)
+     *
+     * @param eventoId evento
+     * @param restringido true para listar solo las personas que el BRIGADISTA puede ver en sus zonas
+     * @param puntos puntos de encuentro como arreglo de PostgreSQL
+     * @param edificios edificios como arreglo de PostgreSQL
+     * @param espacios espacios como arreglo de PostgreSQL
+     * @param pageable página pedida, sin orden
+     * @return la página de check-ins vigentes con Requiero asistencia
+     */
+    @Query(value = "SELECT * FROM v_checkins_vigentes WHERE evento_id = :eventoId AND estado = 'NEEDS_ASSISTANCE' "
+            + FILTRO_ZONAS + "ORDER BY registrado_en, numero",
+            countQuery = "SELECT COUNT(*) FROM v_checkins_vigentes WHERE evento_id = :eventoId "
+                    + "AND estado = 'NEEDS_ASSISTANCE' " + FILTRO_ZONAS,
+            nativeQuery = true)
+    Page<Checkin> buscarVigentesConAsistencia(@Param("eventoId") UUID eventoId,
+            @Param("restringido") boolean restringido, @Param("puntos") String puntos,
+            @Param("edificios") String edificios, @Param("espacios") String espacios, Pageable pageable);
+
+    /**
+     * Personas cuyo estado vigente es Requiero asistencia, del reporte más antiguo al más reciente (RF-MS04-08)
+     *
+     * @param eventoId evento
+     * @param restringido true para listar solo las personas que el BRIGADISTA puede ver en sus zonas
+     * @param puntos puntos de encuentro de las zonas del brigadista
+     * @param edificios edificios de las zonas del brigadista
+     * @param espacios espacios de las zonas del brigadista
+     * @param pageable página pedida
+     * @return la página de check-ins vigentes con Requiero asistencia
+     */
+    default Page<Checkin> buscarVigentesConAsistencia(UUID eventoId, boolean restringido, Collection<UUID> puntos,
+            Collection<UUID> edificios, Collection<UUID> espacios, Pageable pageable) {
+        return buscarVigentesConAsistencia(eventoId, restringido, arreglo(puntos), arreglo(edificios),
+                arreglo(espacios), pageable);
+    }
+
+    /**
      * Filtro del detalle para MS06: evento y estado vigente opcional
      */
     String FILTRO_DETALLE_MS06 = "evento_id = :eventoId "

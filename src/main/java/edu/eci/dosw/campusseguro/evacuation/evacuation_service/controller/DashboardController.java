@@ -169,7 +169,7 @@ public class DashboardController {
     }
 
     /**
-     * Personas que requieren asistencia; pendiente de implementar (RF-MS04-08)
+     * Personas que requieren asistencia, con su ubicación y su solicitud en MS05
      *
      * @param eventoId evento del que se listan las personas
      * @param page número de página, desde 0
@@ -177,16 +177,34 @@ public class DashboardController {
      * @param requester identidad tomada de las cabeceras X-User-Id y X-User-Role
      * @return la página de personas que requieren asistencia
      * @throws ApiException 400 VALIDACION con paginación inválida, 403 PROHIBIDO sin el permiso
-     *         ms04:dashboard:read, 501 NO_IMPLEMENTADO mientras no se implemente
+     *         ms04:dashboard:read, 404 NO_ENCONTRADO si el evento no existe, 503 DEPENDENCIA_NO_DISPONIBLE si MS05
+     *         no entrega las zonas de un BRIGADISTA
      */
     @Operation(summary = "Personas que requieren asistencia (RF-MS04-08, F-03)",
             description = "Permiso ms04:dashboard:read. Personas con estado vigente NEEDS_ASSISTANCE, del reporte "
-                    + "más antiguo al más reciente, con su solicitud en MS05 y el estado de su envío.")
+                    + "más antiguo al más reciente, con su nombre (nulo si MS01 no lo entregó), su ubicación, la "
+                    + "fecha de su check-in vigente y su solicitud en MS05 con el estado de su envío (ENVIADA, "
+                    + "PENDIENTE_ENVIO o RECHAZADA). El BRIGADISTA solo recibe las personas de sus zonas. La "
+                    + "asignación y la atención ocurren en MS05. Funciona con el evento en cualquier estado.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Página de personas que requieren asistencia."),
+            @ApiResponse(responseCode = "400", description = "Paginación inválida.",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "401", description = "Faltan las cabeceras de identidad.",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "403", description = "El rol no tiene el permiso ms04:dashboard:read.",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "404", description = "Evento inexistente.",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "503",
+                    description = "MS05 no entrega las zonas del brigadista (DEPENDENCIA_NO_DISPONIBLE).",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
     @GetMapping("/{eventoId}/asistencia")
     public PageResponse<PersonaAsistencia> asistencia(@PathVariable UUID eventoId,
             @RequestParam(defaultValue = Paginacion.PAGINA_POR_DEFECTO) int page,
             @RequestParam(defaultValue = Paginacion.TAMANO_POR_DEFECTO) int size,
-            RequesterIdentity requester) {
+            @Parameter(hidden = true) RequesterIdentity requester) {
         PermissionChecker.require(requester, Permiso.DASHBOARD_READ);
         Paginacion.validar(page, size);
         return service.asistencia(eventoId, page, size, requester);

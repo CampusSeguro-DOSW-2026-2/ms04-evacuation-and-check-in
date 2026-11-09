@@ -42,22 +42,30 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.CheckinResume
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.Consolidado;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.PageResponse;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.Pendiente;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.PersonaAsistencia;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.SolicitudAsistenciaResumen;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.TotalPorPunto;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.Ubicacion;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.Checkin;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.EstadoCheckin;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.EstadoEnvio;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.EstadoEvento;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.Evento;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.SolicitudAsistencia;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.TipoUbicacion;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.exception.ApiException;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.exception.ErrorCode;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.CheckinRepository;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.CheckinRepository.ConteoPorEstadoYPunto;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.EventoRepository;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.SolicitudAsistenciaRepository;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.RequesterIdentity;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.Rol;
 
 /**
  * Lógica de RF-MS04-06 (consolidar el estado del evento y listar personas por estado y punto de encuentro) y de
- * RF-MS04-07 (personas pendientes) con los repositorios y los clientes de MS01 y MS05 simulados
+ * RF-MS04-07 (personas pendientes) y RF-MS04-08 (personas que requieren asistencia) con los repositorios y los clientes
+ * de MS01 y MS05 simulados
  */
 @ExtendWith(MockitoExtension.class)
 class DashboardServiceTest {
@@ -101,6 +109,9 @@ class DashboardServiceTest {
     private CheckinRepository checkins;
 
     @Mock
+    private SolicitudAsistenciaRepository solicitudes;
+
+    @Mock
     private UsuarioNombresClient nombres;
 
     @Mock
@@ -116,7 +127,8 @@ class DashboardServiceTest {
      */
     @BeforeEach
     void crearService() {
-        service = new DashboardService(eventos, checkins, nombres, zonasBrigadista, poblacionObjetivo, RELOJ);
+        service = new DashboardService(eventos, checkins, solicitudes, nombres, zonasBrigadista, poblacionObjetivo,
+                RELOJ);
     }
 
     /**
@@ -189,7 +201,8 @@ class DashboardServiceTest {
     @Test
     void consolidadoEntregaLaFechaDelCalculoEnMilisegundos() {
         Clock reloj = Clock.fixed(Instant.parse("2026-11-20T15:10:00.123456789Z"), ZoneOffset.UTC);
-        service = new DashboardService(eventos, checkins, nombres, zonasBrigadista, poblacionObjetivo, reloj);
+        service = new DashboardService(eventos, checkins, solicitudes, nombres, zonasBrigadista, poblacionObjetivo,
+                reloj);
         when(eventos.findById(EVENTO)).thenReturn(Optional.of(evento(EstadoEvento.EN_EJECUCION)));
         when(checkins.contarVigentes(EVENTO, false, NADA, NADA, NADA)).thenReturn(List.of());
 
@@ -497,15 +510,271 @@ class DashboardServiceTest {
         verify(zonasBrigadista, never()).zonasDe(any());
     }
 
+    // ---------------------------------------------------------------- asistencia
+
+    private static final Instant PRIMER_REPORTE = Instant.parse("2026-11-20T15:02:00Z");
+    private static final Instant SEGUNDO_REPORTE = Instant.parse("2026-11-20T15:04:12Z");
+
     /**
-     * Mientras no se implemente, RF-08 sigue respondiendo 501 NO_IMPLEMENTADO
+     * Crea el check-in vigente Requiero asistencia de un usuario, como lo devuelve la base de datos
+     *
+     * @param usuario usuario que reporta
+     * @param tipo tipo de la ubicación reportada
+     * @param ubicacion id de MS02 de la ubicación
+     * @param registrado fecha y hora del check-in
+     * @return el check-in con su fecha de registro
+     */
+    private Checkin checkinAsistencia(UUID usuario, TipoUbicacion tipo, UUID ubicacion, Instant registrado) {
+        Checkin checkin = new Checkin(EVENTO, usuario, EstadoCheckin.NEEDS_ASSISTANCE, null, tipo, ubicacion);
+        ReflectionTestUtils.setField(checkin, "registradoEn", registrado);
+        return checkin;
+    }
+
+    /**
+     * Crea la solicitud de asistencia de un usuario con su estado de envío
+     *
+     * @param usuario usuario de la solicitud
+     * @param solicitudMs05 id que devolvió MS05, null si no llegó
+     * @param estadoEnvio estado de envío
+     * @return la solicitud
+     */
+    private SolicitudAsistencia solicitud(UUID usuario, String solicitudMs05, EstadoEnvio estadoEnvio) {
+        SolicitudAsistencia solicitud = new SolicitudAsistencia(UUID.randomUUID(), EVENTO, usuario,
+                TipoUbicacion.EDIFICIO, EDIFICIO, PRIMER_REPORTE);
+        solicitud.setSolicitudMs05Id(solicitudMs05);
+        solicitud.setEstadoEnvio(estadoEnvio);
+        return solicitud;
+    }
+
+    /**
+     * Cada persona sale con su nombre, la ubicación y la fecha de su check-in vigente y su solicitud en MS05, en el
+     * orden que entrega la consulta (del reporte más antiguo al más reciente)
      */
     @Test
-    void asistenciaSigueSinImplementar() {
-        RequesterIdentity coordinador = con(Rol.COORDINADOR);
+    void asistenciaListaNombreUbicacionFechaYSolicitud() {
+        when(eventos.existsById(EVENTO)).thenReturn(true);
+        when(checkins.buscarVigentesConAsistencia(EVENTO, false, NADA, NADA, NADA, PageRequest.of(0, 20)))
+                .thenReturn(new PageImpl<>(List.of(
+                        checkinAsistencia(ANA, TipoUbicacion.EDIFICIO, EDIFICIO, PRIMER_REPORTE),
+                        checkinAsistencia(LUIS, TipoUbicacion.ESPACIO, ESPACIO, SEGUNDO_REPORTE)),
+                        PageRequest.of(0, 20), 2));
+        when(nombres.nombresDe(List.of(ANA, LUIS))).thenReturn(Map.of(ANA, "Ana Pérez", LUIS, "Luis Gómez"));
+        when(solicitudes.findByEventoIdAndUsuarioIdIn(EVENTO, List.of(ANA, LUIS))).thenReturn(List.of(
+                solicitud(LUIS, null, EstadoEnvio.PENDIENTE_ENVIO), solicitud(ANA, "SOL-2026-0042", EstadoEnvio.ENVIADA)));
 
-        assertEquals(ErrorCode.NOT_IMPLEMENTED,
-                assertThrows(ApiException.class, () -> service.asistencia(EVENTO, 0, 20, coordinador)).getCode());
+        PageResponse<PersonaAsistencia> respuesta = service.asistencia(EVENTO, 0, 20, con(Rol.COORDINADOR));
+
+        assertEquals(2, respuesta.totalElementos());
+        assertEquals(List.of(new PersonaAsistencia(ANA, "Ana Pérez", new Ubicacion(TipoUbicacion.EDIFICIO, EDIFICIO),
+                PRIMER_REPORTE, new SolicitudAsistenciaResumen("SOL-2026-0042", EstadoEnvio.ENVIADA)),
+                new PersonaAsistencia(LUIS, "Luis Gómez", new Ubicacion(TipoUbicacion.ESPACIO, ESPACIO),
+                        SEGUNDO_REPORTE, new SolicitudAsistenciaResumen(null, EstadoEnvio.PENDIENTE_ENVIO))),
+                respuesta.contenido());
+        verifyNoInteractions(zonasBrigadista);
+    }
+
+    /**
+     * Una solicitud que no llegó a MS05 se muestra tal cual, para que el coordinador la registre a mano (A3)
+     *
+     * @param estadoEnvio estado de envío de la solicitud
+     */
+    @ParameterizedTest
+    @EnumSource(EstadoEnvio.class)
+    void asistenciaMuestraElEstadoDeEnvioDeLaSolicitud(EstadoEnvio estadoEnvio) {
+        String solicitudMs05 = null;
+        if (estadoEnvio == EstadoEnvio.ENVIADA) {
+            solicitudMs05 = "SOL-2026-0042";
+        }
+        when(eventos.existsById(EVENTO)).thenReturn(true);
+        when(checkins.buscarVigentesConAsistencia(EVENTO, false, NADA, NADA, NADA, PageRequest.of(0, 20)))
+                .thenReturn(new PageImpl<>(
+                        List.of(checkinAsistencia(ANA, TipoUbicacion.PUNTO_ENCUENTRO, PUNTO_A, PRIMER_REPORTE)),
+                        PageRequest.of(0, 20), 1));
+        when(solicitudes.findByEventoIdAndUsuarioIdIn(EVENTO, List.of(ANA)))
+                .thenReturn(List.of(solicitud(ANA, solicitudMs05, estadoEnvio)));
+
+        PageResponse<PersonaAsistencia> respuesta = service.asistencia(EVENTO, 0, 20, con(Rol.COORDINADOR));
+
+        assertEquals(new SolicitudAsistenciaResumen(solicitudMs05, estadoEnvio),
+                respuesta.contenido().get(0).solicitudAsistencia());
+        assertEquals(new Ubicacion(TipoUbicacion.PUNTO_ENCUENTRO, PUNTO_A), respuesta.contenido().get(0).ubicacion());
+    }
+
+    /**
+     * Si MS01 no responde, la lista sale con el nombre nulo y el resto de los datos
+     */
+    @Test
+    void asistenciaSinNombresDeMs01SaleConNombreNulo() {
+        when(eventos.existsById(EVENTO)).thenReturn(true);
+        when(checkins.buscarVigentesConAsistencia(EVENTO, false, NADA, NADA, NADA, PageRequest.of(0, 20)))
+                .thenReturn(new PageImpl<>(
+                        List.of(checkinAsistencia(ANA, TipoUbicacion.EDIFICIO, EDIFICIO, PRIMER_REPORTE)),
+                        PageRequest.of(0, 20), 1));
+        when(nombres.nombresDe(List.of(ANA))).thenReturn(Map.of());
+        when(solicitudes.findByEventoIdAndUsuarioIdIn(EVENTO, List.of(ANA)))
+                .thenReturn(List.of(solicitud(ANA, "SOL-2026-0042", EstadoEnvio.ENVIADA)));
+
+        PageResponse<PersonaAsistencia> respuesta = service.asistencia(EVENTO, 0, 20, con(Rol.COORDINADOR));
+
+        assertNull(respuesta.contenido().get(0).nombre());
+        assertEquals(ANA, respuesta.contenido().get(0).usuarioId());
+        assertEquals("SOL-2026-0042", respuesta.contenido().get(0).solicitudAsistencia().id());
+    }
+
+    /**
+     * Si por algún motivo la persona no tiene solicitud, igual aparece en la lista, con la solicitud nula
+     */
+    @Test
+    void asistenciaSinSolicitudMuestraLaPersonaConLaSolicitudNula() {
+        when(eventos.existsById(EVENTO)).thenReturn(true);
+        when(checkins.buscarVigentesConAsistencia(EVENTO, false, NADA, NADA, NADA, PageRequest.of(0, 20)))
+                .thenReturn(new PageImpl<>(
+                        List.of(checkinAsistencia(ANA, TipoUbicacion.EDIFICIO, EDIFICIO, PRIMER_REPORTE)),
+                        PageRequest.of(0, 20), 1));
+        when(solicitudes.findByEventoIdAndUsuarioIdIn(EVENTO, List.of(ANA))).thenReturn(List.of());
+
+        PageResponse<PersonaAsistencia> respuesta = service.asistencia(EVENTO, 0, 20, con(Rol.COORDINADOR));
+
+        assertEquals(1, respuesta.totalElementos());
+        assertNull(respuesta.contenido().get(0).solicitudAsistencia());
+    }
+
+    /**
+     * A1: si nadie requiere asistencia responde 200 con la lista vacía y no consulta solicitudes ni nombres de más
+     *
+     * @param pagina número de página pedido
+     */
+    @ParameterizedTest
+    @ValueSource(ints = { 0, 7 })
+    void siNadieRequiereAsistenciaLaListaEsVacia(int pagina) {
+        when(eventos.existsById(EVENTO)).thenReturn(true);
+        when(checkins.buscarVigentesConAsistencia(EVENTO, false, NADA, NADA, NADA, PageRequest.of(pagina, 20)))
+                .thenReturn(Page.empty(PageRequest.of(pagina, 20)));
+
+        PageResponse<PersonaAsistencia> respuesta = service.asistencia(EVENTO, pagina, 20, con(Rol.COORDINADOR));
+
+        assertTrue(respuesta.contenido().isEmpty());
+        assertEquals(pagina, respuesta.page());
+        assertEquals(0, respuesta.totalElementos());
+        assertEquals(0, respuesta.totalPaginas());
+        verify(solicitudes, never()).findByEventoIdAndUsuarioIdIn(any(), any());
+        verify(zonasBrigadista, never()).zonasDe(any());
+    }
+
+    /**
+     * La lista se pagina: pide a la base solo la página, y el total y las páginas salen del total de personas
+     */
+    @Test
+    void asistenciaSePagina() {
+        when(eventos.existsById(EVENTO)).thenReturn(true);
+        when(checkins.buscarVigentesConAsistencia(EVENTO, false, NADA, NADA, NADA, PageRequest.of(1, 2)))
+                .thenReturn(new PageImpl<>(
+                        List.of(checkinAsistencia(LUIS, TipoUbicacion.ESPACIO, ESPACIO, SEGUNDO_REPORTE)),
+                        PageRequest.of(1, 2), 3));
+        when(solicitudes.findByEventoIdAndUsuarioIdIn(EVENTO, List.of(LUIS)))
+                .thenReturn(List.of(solicitud(LUIS, null, EstadoEnvio.RECHAZADA)));
+
+        PageResponse<PersonaAsistencia> respuesta = service.asistencia(EVENTO, 1, 2, con(Rol.COORDINADOR));
+
+        assertEquals(1, respuesta.page());
+        assertEquals(2, respuesta.size());
+        assertEquals(3, respuesta.totalElementos());
+        assertEquals(2, respuesta.totalPaginas());
+        assertEquals(1, respuesta.contenido().size());
+    }
+
+    /**
+     * A2: el BRIGADISTA pide sus zonas a MS05 y recibe solo las personas de ellas
+     */
+    @Test
+    void asistenciaDelBrigadistaListaSoloSusZonas() {
+        RequesterIdentity brigadista = con(Rol.BRIGADISTA);
+        when(eventos.existsById(EVENTO)).thenReturn(true);
+        when(zonasBrigadista.zonasDe(brigadista))
+                .thenReturn(new ZonasAsignadas(Set.of(EDIFICIO), Set.of(ESPACIO), Set.of(PUNTO_A)));
+        when(checkins.buscarVigentesConAsistencia(EVENTO, true, Set.of(PUNTO_A), Set.of(EDIFICIO), Set.of(ESPACIO),
+                PageRequest.of(0, 20)))
+                .thenReturn(new PageImpl<>(
+                        List.of(checkinAsistencia(ANA, TipoUbicacion.EDIFICIO, EDIFICIO, PRIMER_REPORTE)),
+                        PageRequest.of(0, 20), 1));
+        when(solicitudes.findByEventoIdAndUsuarioIdIn(EVENTO, List.of(ANA)))
+                .thenReturn(List.of(solicitud(ANA, "SOL-2026-0042", EstadoEnvio.ENVIADA)));
+
+        PageResponse<PersonaAsistencia> respuesta = service.asistencia(EVENTO, 0, 20, brigadista);
+
+        assertEquals(1, respuesta.totalElementos());
+        assertEquals(ANA, respuesta.contenido().get(0).usuarioId());
+    }
+
+    /**
+     * Quien tiene el rol BRIGADISTA y otro rol con acceso ve todas las personas del evento
+     *
+     * @param otro rol que ve todo el evento
+     */
+    @ParameterizedTest
+    @EnumSource(value = Rol.class, names = { "COORDINADOR", "ORGANIZADOR", "AUDITOR" })
+    void asistenciaDeBrigadistaConOtroRolConAccesoNoSeRestringe(Rol otro) {
+        when(eventos.existsById(EVENTO)).thenReturn(true);
+        when(checkins.buscarVigentesConAsistencia(EVENTO, false, NADA, NADA, NADA, PageRequest.of(0, 20)))
+                .thenReturn(Page.empty(PageRequest.of(0, 20)));
+
+        service.asistencia(EVENTO, 0, 20, con(Rol.BRIGADISTA, otro));
+
+        verify(zonasBrigadista, never()).zonasDe(any());
+    }
+
+    /**
+     * Si MS05 no entrega las zonas, el BRIGADISTA recibe 503 y no se consulta nada más
+     */
+    @Test
+    void asistenciaDelBrigadistaSinZonasDeMs05Responde503() {
+        RequesterIdentity brigadista = con(Rol.BRIGADISTA);
+        when(eventos.existsById(EVENTO)).thenReturn(true);
+        when(zonasBrigadista.zonasDe(brigadista)).thenThrow(ApiException.dependenciaNoDisponible());
+
+        ApiException error = assertThrows(ApiException.class, () -> service.asistencia(EVENTO, 0, 20, brigadista));
+
+        assertEquals(ErrorCode.DEPENDENCY_UNAVAILABLE, error.getCode());
+        verifyNoInteractions(checkins, solicitudes, nombres);
+    }
+
+    /**
+     * A5: con un evento inexistente responde 404 sin consultar nada más, tampoco las zonas del BRIGADISTA
+     *
+     * @param rol rol del solicitante
+     */
+    @ParameterizedTest
+    @EnumSource(value = Rol.class, names = { "BRIGADISTA", "COORDINADOR", "ORGANIZADOR", "AUDITOR" })
+    void asistenciaDeUnEventoInexistenteResponde404(Rol rol) {
+        when(eventos.existsById(EVENTO)).thenReturn(false);
+        RequesterIdentity requester = con(rol);
+
+        ApiException error = assertThrows(ApiException.class, () -> service.asistencia(EVENTO, 0, 20, requester));
+
+        assertEquals(ErrorCode.NOT_FOUND, error.getCode());
+        assertEquals(DashboardService.EVENTO_NO_ENCONTRADO, error.getMessage());
+        verifyNoInteractions(checkins, solicitudes, nombres, zonasBrigadista);
+    }
+
+    /**
+     * La lista funciona con el evento en cualquier estado (RN-MS04-22): el service no mira el estado del evento
+     *
+     * @param estado estado del evento
+     */
+    @ParameterizedTest
+    @EnumSource(EstadoEvento.class)
+    void asistenciaFuncionaConElEventoEnCualquierEstado(EstadoEvento estado) {
+        when(eventos.existsById(EVENTO)).thenReturn(true);
+        when(checkins.buscarVigentesConAsistencia(EVENTO, false, NADA, NADA, NADA, PageRequest.of(0, 20)))
+                .thenReturn(new PageImpl<>(
+                        List.of(checkinAsistencia(ANA, TipoUbicacion.EDIFICIO, EDIFICIO, PRIMER_REPORTE)),
+                        PageRequest.of(0, 20), 1));
+        when(solicitudes.findByEventoIdAndUsuarioIdIn(EVENTO, List.of(ANA)))
+                .thenReturn(List.of(solicitud(ANA, "SOL-2026-0042", EstadoEnvio.ENVIADA)));
+
+        PageResponse<PersonaAsistencia> respuesta = service.asistencia(EVENTO, 0, 20, con(Rol.COORDINADOR));
+
+        assertEquals(1, respuesta.totalElementos());
     }
 
     // ---------------------------------------------------------------- pendientes

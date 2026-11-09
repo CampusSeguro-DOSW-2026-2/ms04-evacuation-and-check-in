@@ -48,13 +48,17 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.config.SecurityCo
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.config.WebMvcConfig;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.Checkin;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.EstadoCheckin;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.EstadoEnvio;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.EstadoEvento;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.Evento;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.SolicitudAsistencia;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.TipoUbicacion;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.exception.ApiException;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.exception.GlobalExceptionHandler;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.CheckinRepository;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.CheckinRepository.ConteoPorEstadoYPunto;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.EventoRepository;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.SolicitudAsistenciaRepository;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.CorrelationIdFilter;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.IdentityHeaders;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.RequesterIdentity;
@@ -63,9 +67,10 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.service.Dashboard
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.util.CorrelationIds;
 
 /**
- * Contrato HTTP de RF-MS04-06 y RF-MS04-07: GET /api/v1/chi/eventos/{eventoId}/consolidado, /personas y
- * /pendientes con el service real y los repositorios y clientes de MS01 y MS05 simulados. Comprueba la forma de las respuestas, los errores estándar, el
- * permiso ms04:dashboard:read y que la identidad sale solo de las cabeceras
+ * Contrato HTTP de RF-MS04-06, RF-MS04-07 y RF-MS04-08: GET /api/v1/chi/eventos/{eventoId}/consolidado, /personas,
+ * /pendientes y /asistencia con el service real y los repositorios y clientes de MS01 y MS05 simulados. Comprueba
+ * la forma de las respuestas, los errores estándar, el permiso ms04:dashboard:read y que la identidad sale solo de
+ * las cabeceras
  */
 @WebMvcTest(controllers = DashboardController.class)
 @Import({ SecurityConfig.class, WebMvcConfig.class, GlobalExceptionHandler.class, CorrelationIdFilter.class,
@@ -126,6 +131,9 @@ class DashboardHttpTest {
 
     @MockitoBean
     private CheckinRepository checkins;
+
+    @MockitoBean
+    private SolicitudAsistenciaRepository solicitudes;
 
     @MockitoBean
     private UsuarioNombresClient nombres;
@@ -770,5 +778,292 @@ class DashboardHttpTest {
 
         verify(poblacionObjetivo).usuariosActivosPorRoles(ROLES, INICIO,
                 new RequesterIdentity(UUID.fromString(USUARIO), EnumSet.of(Rol.AUDITOR)));
+    }
+
+    // ---------------------------------------------------------------- asistencia
+
+    private static final UUID EDIFICIO = UUID.fromString("0b6f3d1a-2c4e-4f58-8a97-5d3e1b7c9a20");
+    private static final UUID ESPACIO = UUID.fromString("d2a8c6e0-4f1b-4735-9e3d-5a7c9b1f3e60");
+
+    /**
+     * Crea el check-in vigente Requiero asistencia de un usuario, como lo devuelve la base de datos
+     *
+     * @param usuario usuario que reporta
+     * @param tipo tipo de la ubicación reportada
+     * @param ubicacion id de MS02 de la ubicación
+     * @return el check-in con su fecha de registro
+     */
+    private Checkin checkinAsistencia(UUID usuario, TipoUbicacion tipo, UUID ubicacion) {
+        Checkin checkin = new Checkin(EVENTO, usuario, EstadoCheckin.NEEDS_ASSISTANCE, null, tipo, ubicacion);
+        ReflectionTestUtils.setField(checkin, "registradoEn", REGISTRADO);
+        return checkin;
+    }
+
+    /**
+     * Crea la solicitud de asistencia de un usuario con su estado de envío
+     *
+     * @param usuario usuario de la solicitud
+     * @param solicitudMs05 id que devolvió MS05, null si no llegó
+     * @param estadoEnvio estado de envío
+     * @return la solicitud
+     */
+    private SolicitudAsistencia solicitud(UUID usuario, String solicitudMs05, EstadoEnvio estadoEnvio) {
+        SolicitudAsistencia solicitud = new SolicitudAsistencia(UUID.randomUUID(), EVENTO, usuario,
+                TipoUbicacion.EDIFICIO, EDIFICIO, REGISTRADO);
+        solicitud.setSolicitudMs05Id(solicitudMs05);
+        solicitud.setEstadoEnvio(estadoEnvio);
+        return solicitud;
+    }
+
+    /**
+     * La lista responde 200 con la página de los Estándares y los campos del contrato en snake_case: la ubicación,
+     * la fecha del check-in vigente y la solicitud con el id de MS05 y el estado de su envío
+     *
+     * @throws Exception si falla la petición
+     */
+    @Test
+    void asistenciaResponde200ConLaPaginaYElContrato() throws Exception {
+        when(eventos.existsById(EVENTO)).thenReturn(true);
+        when(checkins.buscarVigentesConAsistencia(EVENTO, false, NADA, NADA, NADA, PageRequest.of(0, 20)))
+                .thenReturn(new PageImpl<>(List.of(checkinAsistencia(ANA, TipoUbicacion.EDIFICIO, EDIFICIO),
+                        checkinAsistencia(LUIS, TipoUbicacion.ESPACIO, ESPACIO)), PageRequest.of(0, 20), 2));
+        when(nombres.nombresDe(List.of(ANA, LUIS))).thenReturn(Map.of(ANA, "Ana Pérez"));
+        when(solicitudes.findByEventoIdAndUsuarioIdIn(EVENTO, List.of(ANA, LUIS))).thenReturn(List.of(
+                solicitud(ANA, "SOL-2026-0042", EstadoEnvio.ENVIADA),
+                solicitud(LUIS, null, EstadoEnvio.PENDIENTE_ENVIO)));
+
+        mockMvc.perform(como(BASE + "/asistencia", "COORDINADOR"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(CorrelationIds.HEADER, CORRELATION))
+                .andExpect(jsonPath("$.contenido", hasSize(2)))
+                .andExpect(jsonPath("$.contenido[0].usuario_id").value(ANA.toString()))
+                .andExpect(jsonPath("$.contenido[0].nombre").value("Ana Pérez"))
+                .andExpect(jsonPath("$.contenido[0].ubicacion.tipo").value("EDIFICIO"))
+                .andExpect(jsonPath("$.contenido[0].ubicacion.id").value(EDIFICIO.toString()))
+                .andExpect(jsonPath("$.contenido[0].fecha_reporte").value("2026-11-20T15:04:12Z"))
+                .andExpect(jsonPath("$.contenido[0].solicitud_asistencia.id").value("SOL-2026-0042"))
+                .andExpect(jsonPath("$.contenido[0].solicitud_asistencia.estado_envio").value("ENVIADA"))
+                .andExpect(jsonPath("$.contenido[1].usuario_id").value(LUIS.toString()))
+                .andExpect(jsonPath("$.contenido[1].nombre").value(nullValue()))
+                .andExpect(jsonPath("$.contenido[1].ubicacion.tipo").value("ESPACIO"))
+                .andExpect(jsonPath("$.contenido[1].ubicacion.id").value(ESPACIO.toString()))
+                .andExpect(jsonPath("$.contenido[1].solicitud_asistencia.id").value(nullValue()))
+                .andExpect(jsonPath("$.contenido[1].solicitud_asistencia.estado_envio").value("PENDIENTE_ENVIO"))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(20))
+                .andExpect(jsonPath("$.total_elementos").value(2))
+                .andExpect(jsonPath("$.total_paginas").value(1));
+    }
+
+    /**
+     * Una solicitud RECHAZADA o pendiente de envío se muestra así, para que el coordinador la registre a mano
+     *
+     * @param estadoEnvio estado de envío de la solicitud
+     * @throws Exception si falla la petición
+     */
+    @ParameterizedTest
+    @ValueSource(strings = { "PENDIENTE_ENVIO", "RECHAZADA" })
+    void asistenciaMuestraLasSolicitudesQueNoLlegaronAMs05(String estadoEnvio) throws Exception {
+        when(eventos.existsById(EVENTO)).thenReturn(true);
+        when(checkins.buscarVigentesConAsistencia(EVENTO, false, NADA, NADA, NADA, PageRequest.of(0, 20)))
+                .thenReturn(new PageImpl<>(List.of(checkinAsistencia(ANA, TipoUbicacion.PUNTO_ENCUENTRO, PUNTO_A)),
+                        PageRequest.of(0, 20), 1));
+        when(solicitudes.findByEventoIdAndUsuarioIdIn(EVENTO, List.of(ANA)))
+                .thenReturn(List.of(solicitud(ANA, null, EstadoEnvio.valueOf(estadoEnvio))));
+
+        mockMvc.perform(como(BASE + "/asistencia", "COORDINADOR"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.contenido[0].ubicacion.tipo").value("PUNTO_ENCUENTRO"))
+                .andExpect(jsonPath("$.contenido[0].solicitud_asistencia.id").value(nullValue()))
+                .andExpect(jsonPath("$.contenido[0].solicitud_asistencia.estado_envio").value(estadoEnvio));
+    }
+
+    /**
+     * A1: si nadie requiere asistencia responde 200 con la lista vacía y los totales en 0
+     *
+     * @throws Exception si falla la petición
+     */
+    @Test
+    void siNadieRequiereAsistenciaResponde200ConLaListaVacia() throws Exception {
+        when(eventos.existsById(EVENTO)).thenReturn(true);
+        when(checkins.buscarVigentesConAsistencia(EVENTO, false, NADA, NADA, NADA, PageRequest.of(0, 20)))
+                .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 20), 0));
+
+        mockMvc.perform(como(BASE + "/asistencia", "COORDINADOR"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.contenido", empty()))
+                .andExpect(jsonPath("$.total_elementos").value(0))
+                .andExpect(jsonPath("$.total_paginas").value(0));
+    }
+
+    /**
+     * Pide la página indicada y la pasa a la consulta
+     *
+     * @throws Exception si falla la petición
+     */
+    @Test
+    void asistenciaRespetaLaPaginaYElTamanoPedidos() throws Exception {
+        when(eventos.existsById(EVENTO)).thenReturn(true);
+        when(checkins.buscarVigentesConAsistencia(EVENTO, false, NADA, NADA, NADA, PageRequest.of(1, 1)))
+                .thenReturn(new PageImpl<>(List.of(checkinAsistencia(LUIS, TipoUbicacion.ESPACIO, ESPACIO)),
+                        PageRequest.of(1, 1), 3));
+        when(solicitudes.findByEventoIdAndUsuarioIdIn(EVENTO, List.of(LUIS)))
+                .thenReturn(List.of(solicitud(LUIS, "SOL-2026-0043", EstadoEnvio.ENVIADA)));
+
+        mockMvc.perform(como(BASE + "/asistencia?page=1&size=1", "ORGANIZADOR"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.contenido", hasSize(1)))
+                .andExpect(jsonPath("$.contenido[0].usuario_id").value(LUIS.toString()))
+                .andExpect(jsonPath("$.page").value(1))
+                .andExpect(jsonPath("$.size").value(1))
+                .andExpect(jsonPath("$.total_elementos").value(3))
+                .andExpect(jsonPath("$.total_paginas").value(3));
+    }
+
+    /**
+     * Los roles con ms04:dashboard:read pueden consultar la lista de asistencia
+     *
+     * @param rol valor de la cabecera X-User-Role
+     * @throws Exception si falla la petición
+     */
+    @ParameterizedTest
+    @ValueSource(strings = { "COORDINADOR", "ORGANIZADOR", "AUDITOR", "BRIGADISTA,COORDINADOR" })
+    void losRolesConElPermisoPuedenConsultarAsistencia(String rol) throws Exception {
+        when(eventos.existsById(EVENTO)).thenReturn(true);
+        when(checkins.buscarVigentesConAsistencia(EVENTO, false, NADA, NADA, NADA, PageRequest.of(0, 20)))
+                .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 20), 0));
+
+        mockMvc.perform(como(BASE + "/asistencia", rol)).andExpect(status().isOk());
+
+        verifyNoInteractions(zonasBrigadista);
+    }
+
+    /**
+     * A2: el BRIGADISTA consulta con las zonas que MS05 le entrega y el id de usuario sale de la cabecera
+     *
+     * @throws Exception si falla la petición
+     */
+    @Test
+    void asistenciaDelBrigadistaUsaSusZonasYSuIdentidadDeLasCabeceras() throws Exception {
+        when(eventos.existsById(EVENTO)).thenReturn(true);
+        when(zonasBrigadista.zonasDe(any())).thenReturn(new ZonasAsignadas(Set.of(EDIFICIO), Set.of(ESPACIO),
+                Set.of(PUNTO_A)));
+        when(checkins.buscarVigentesConAsistencia(EVENTO, true, Set.of(PUNTO_A), Set.of(EDIFICIO), Set.of(ESPACIO),
+                PageRequest.of(0, 20)))
+                .thenReturn(new PageImpl<>(List.of(checkinAsistencia(ANA, TipoUbicacion.EDIFICIO, EDIFICIO)),
+                        PageRequest.of(0, 20), 1));
+        when(solicitudes.findByEventoIdAndUsuarioIdIn(EVENTO, List.of(ANA)))
+                .thenReturn(List.of(solicitud(ANA, "SOL-2026-0042", EstadoEnvio.ENVIADA)));
+
+        mockMvc.perform(como(BASE + "/asistencia", "BRIGADISTA"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.contenido", hasSize(1)))
+                .andExpect(jsonPath("$.contenido[0].usuario_id").value(ANA.toString()))
+                .andExpect(jsonPath("$.total_elementos").value(1));
+
+        verify(zonasBrigadista).zonasDe(new RequesterIdentity(UUID.fromString(USUARIO), EnumSet.of(Rol.BRIGADISTA)));
+    }
+
+    /**
+     * Si MS05 no entrega las zonas del BRIGADISTA, la lista responde 503
+     *
+     * @throws Exception si falla la petición
+     */
+    @Test
+    void asistenciaDelBrigadistaSinZonasDeMs05Responde503() throws Exception {
+        when(eventos.existsById(EVENTO)).thenReturn(true);
+        when(zonasBrigadista.zonasDe(any())).thenThrow(ApiException.dependenciaNoDisponible());
+
+        mockMvc.perform(como(BASE + "/asistencia", "BRIGADISTA"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.status").value(503))
+                .andExpect(jsonPath("$.codigo").value("DEPENDENCIA_NO_DISPONIBLE"))
+                .andExpect(jsonPath("$.correlation_id").value(CORRELATION));
+
+        verifyNoInteractions(checkins, solicitudes, nombres);
+    }
+
+    /**
+     * A4: un rol sin ms04:dashboard:read recibe 403 sin consultar nada
+     *
+     * @param rol valor de la cabecera X-User-Role
+     * @throws Exception si falla la petición
+     */
+    @ParameterizedTest
+    @ValueSource(strings = { "ESTUDIANTE", "PROFESOR", "ADMINISTRATIVO", "ADMIN", "ESTUDIANTE,PROFESOR" })
+    void losRolesSinElPermisoNoPuedenConsultarAsistencia(String rol) throws Exception {
+        mockMvc.perform(como(BASE + "/asistencia", rol))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.codigo").value("PROHIBIDO"));
+
+        verifyNoInteractions(eventos, checkins, solicitudes, nombres, zonasBrigadista);
+    }
+
+    /**
+     * Sin cabeceras de identidad la lista responde 401
+     *
+     * @throws Exception si falla la petición
+     */
+    @Test
+    void asistenciaSinCabecerasDeIdentidadEsNoAutenticado() throws Exception {
+        mockMvc.perform(get(BASE + "/asistencia"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.codigo").value("NO_AUTENTICADO"));
+    }
+
+    /**
+     * Una paginación inválida responde 400 con el mensaje del formulario F-03 y sin consultar nada
+     *
+     * @param consulta parámetros de paginación inválidos
+     * @param campo parámetro que se reporta
+     * @param mensaje mensaje del formulario F-03
+     * @throws Exception si falla la petición
+     */
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "page=-1|page|Página no válida.",
+            "page=abc|page|Página no válida.",
+            "size=0|size|Tamaño de página no válido (1 a 100).",
+            "size=101|size|Tamaño de página no válido (1 a 100).",
+            "size=abc|size|Tamaño de página no válido (1 a 100)." })
+    void asistenciaConPaginacionInvalidaResponde400(String consulta, String campo, String mensaje)
+            throws Exception {
+        mockMvc.perform(como(BASE + "/asistencia?" + consulta, "COORDINADOR"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.codigo").value("VALIDACION"))
+                .andExpect(jsonPath("$.errores[0].campo").value(campo))
+                .andExpect(jsonPath("$.errores[0].mensaje").value(mensaje));
+
+        verifyNoInteractions(eventos, checkins, solicitudes, nombres);
+    }
+
+    /**
+     * Un eventoId que no es UUID responde 400 con el mensaje de RG-03
+     *
+     * @throws Exception si falla la petición
+     */
+    @Test
+    void asistenciaConUnEventoIdInvalidoResponde400() throws Exception {
+        mockMvc.perform(como("/api/v1/chi/eventos/no-es-un-uuid/asistencia", "COORDINADOR"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errores[0].campo").value("eventoId"))
+                .andExpect(jsonPath("$.errores[0].mensaje").value("Evento no válido."));
+    }
+
+    /**
+     * A5: un evento inexistente responde 404
+     *
+     * @throws Exception si falla la petición
+     */
+    @Test
+    void asistenciaDeUnEventoInexistenteResponde404() throws Exception {
+        when(eventos.existsById(EVENTO)).thenReturn(false);
+
+        mockMvc.perform(como(BASE + "/asistencia", "COORDINADOR"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.codigo").value("NO_ENCONTRADO"))
+                .andExpect(jsonPath("$.mensaje").value("Evento no encontrado."));
+
+        verifyNoInteractions(checkins, solicitudes, nombres);
     }
 }

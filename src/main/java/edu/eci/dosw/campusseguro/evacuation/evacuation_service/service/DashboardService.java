@@ -11,6 +11,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -24,15 +26,19 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.Consolidado;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.PageResponse;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.Pendiente;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.PersonaAsistencia;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.SolicitudAsistenciaResumen;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.TotalPorPunto;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.TotalesPorEstado;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.Ubicacion;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.Checkin;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.EstadoCheckin;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.Evento;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.SolicitudAsistencia;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.exception.ApiException;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.CheckinRepository;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.CheckinRepository.ConteoPorEstadoYPunto;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.EventoRepository;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.SolicitudAsistenciaRepository;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.RequesterIdentity;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.Rol;
 
@@ -42,11 +48,12 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.Rol;
  * personas que requieren asistencia (KAIR-579, historia KAIR-600).
  *
  * Todas las consultas funcionan con el evento en cualquier estado (RN-MS04-22) y el BRIGADISTA ve solo lo de sus
- * zonas asignadas en MS05 (RN-MS04-14). Implementados: RF-MS04-06 y RF-MS04-07. Pendiente de implementar (responde
- * 501 hasta que se complete la lógica): RF-MS04-08
+ * zonas asignadas en MS05 (RN-MS04-14). Implementados: RF-MS04-06, RF-MS04-07 y RF-MS04-08
  */
 @Service
 public class DashboardService {
+
+    private static final Logger log = LoggerFactory.getLogger(DashboardService.class);
 
     public static final String EVENTO_NO_ENCONTRADO = "Evento no encontrado.";
     public static final String PUNTO_SOLO_SAFE = "El punto de encuentro solo aplica a Estoy a salvo.";
@@ -54,6 +61,7 @@ public class DashboardService {
 
     private final EventoRepository eventos;
     private final CheckinRepository checkins;
+    private final SolicitudAsistenciaRepository solicitudes;
     private final UsuarioNombresClient nombres;
     private final ZonasBrigadistaClient zonasBrigadista;
     private final PoblacionObjetivoClient poblacionObjetivo;
@@ -73,15 +81,18 @@ public class DashboardService {
      *
      * @param eventos repositorio de eventos
      * @param checkins repositorio de check-ins
+     * @param solicitudes repositorio de las solicitudes de asistencia
      * @param nombres cliente de los nombres de MS01
      * @param zonasBrigadista cliente de las zonas de brigadista de MS05
      * @param poblacionObjetivo cliente de la población objetivo de MS01
      * @param clock reloj con el que se marca la fecha del cálculo y se fija el corte de la población
      */
-    public DashboardService(EventoRepository eventos, CheckinRepository checkins, UsuarioNombresClient nombres,
+    public DashboardService(EventoRepository eventos, CheckinRepository checkins,
+            SolicitudAsistenciaRepository solicitudes, UsuarioNombresClient nombres,
             ZonasBrigadistaClient zonasBrigadista, PoblacionObjetivoClient poblacionObjetivo, Clock clock) {
         this.eventos = eventos;
         this.checkins = checkins;
+        this.solicitudes = solicitudes;
         this.nombres = nombres;
         this.zonasBrigadista = zonasBrigadista;
         this.poblacionObjetivo = poblacionObjetivo;
@@ -228,18 +239,58 @@ public class DashboardService {
     }
 
     /**
-     * Personas con estado vigente Requiero asistencia, del reporte más antiguo al más reciente, con su solicitud
-     * en MS05 y el estado de su envío. MS04 solo muestra: la asignación y la atención ocurren en MS05
-     * (RN-MS04-16)
+     * Personas con estado vigente Requiero asistencia, del reporte más antiguo al más reciente, con su ubicación,
+     * la fecha de su check-in vigente, su nombre (de MS01, RN-MS04-25) y su solicitud en MS05 con el estado de su
+     * envío. MS04 solo muestra: la asignación y la atención ocurren en MS05 (RN-MS04-16). Quien cambia a otro
+     * estado deja de aparecer. Para el BRIGADISTA lista solo las personas cuya ubicación está en sus zonas
+     * (RN-MS04-14). Si MS01 no responde, la lista sale con el nombre nulo. Funciona con el evento en cualquier
+     * estado (RN-MS04-22)
      *
-     * @param eventoId evento; 404 si no existe
+     * @param eventoId evento
      * @param page número de página, desde 0
      * @param size tamaño de página, de 1 a 100
      * @param requester solicitante con {@code ms04:dashboard:read}
      * @return la página de personas que requieren asistencia
+     * @throws ApiException 404 NO_ENCONTRADO si el evento no existe, 503 DEPENDENCIA_NO_DISPONIBLE si es un
+     *         BRIGADISTA y MS05 no entrega sus zonas
      */
     public PageResponse<PersonaAsistencia> asistencia(UUID eventoId, int page, int size,
             RequesterIdentity requester) {
-        throw ApiException.noImplementado("RF-MS04-08 personas que requieren asistencia");
+        if (!eventos.existsById(eventoId)) {
+            throw ApiException.noEncontrado(EVENTO_NO_ENCONTRADO);
+        }
+        Alcance alcance = alcanceDe(requester);
+        Page<Checkin> pagina = checkins.buscarVigentesConAsistencia(eventoId, alcance.restringido(),
+                alcance.zonas().puntosEncuentro(), alcance.zonas().edificios(), alcance.zonas().espacios(),
+                PageRequest.of(page, size));
+
+        List<UUID> usuarios = pagina.getContent().stream().map(Checkin::getUsuarioId).toList();
+        Map<UUID, String> nombresPorUsuario = nombres.nombresDe(usuarios);
+        Map<UUID, SolicitudAsistencia> solicitudPorUsuario = new HashMap<>();
+        if (!usuarios.isEmpty()) {
+            for (SolicitudAsistencia solicitud : solicitudes.findByEventoIdAndUsuarioIdIn(eventoId, usuarios)) {
+                solicitudPorUsuario.put(solicitud.getUsuarioId(), solicitud);
+            }
+        }
+
+        List<PersonaAsistencia> personas = new ArrayList<>();
+        int sinSolicitud = 0;
+        for (Checkin checkin : pagina.getContent()) {
+            SolicitudAsistenciaResumen resumen = null;
+            SolicitudAsistencia solicitud = solicitudPorUsuario.get(checkin.getUsuarioId());
+            if (solicitud == null) {
+                sinSolicitud++;
+            } else {
+                resumen = new SolicitudAsistenciaResumen(solicitud.getSolicitudMs05Id(), solicitud.getEstadoEnvio());
+            }
+            personas.add(new PersonaAsistencia(checkin.getUsuarioId(), nombresPorUsuario.get(checkin.getUsuarioId()),
+                    new Ubicacion(checkin.getUbicacionTipo(), checkin.getUbicacionId()), checkin.getRegistradoEn(),
+                    resumen));
+        }
+        if (sinSolicitud > 0) {
+            log.warn("{} personas con Requiero asistencia vigente del evento {} no tienen solicitud de asistencia",
+                    sinSolicitud, eventoId);
+        }
+        return PageResponse.of(personas, page, size, pagina.getTotalElements());
     }
 }
