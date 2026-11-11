@@ -160,16 +160,30 @@ class EstadoEventoIntegracionTest {
     }
 
     @Test
-    void unEventoQueNoEsSimulacroQuedaEnEjecucionDesdeLaPrimeraLlamada() throws Exception {
-        enviar(cuerpo(evento, false, "PROGRAMADO", null))
+    void unEventoRealSigueLosEstadosQueEnviaMs06() throws Exception {
+        enviar(cuerpo(evento, false, "BORRADOR", null))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.simulacro").value(false))
+                .andExpect(jsonPath("$.estado").value("BORRADOR"))
+                .andExpect(jsonPath("$.checkinHabilitado").value(false));
+        assertNull(guardado().getFechaInicio());
+        checkin().andExpect(status().isConflict());
+
+        enviar(cuerpo(evento, false, "PROGRAMADO", INICIO))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.estado").value("PROGRAMADO"))
+                .andExpect(jsonPath("$.checkinHabilitado").value(false));
+
+        enviar(cuerpo(evento, false, "EN_EJECUCION", null))
+                .andExpect(status().isOk())
                 .andExpect(jsonPath("$.estado").value("EN_EJECUCION"))
                 .andExpect(jsonPath("$.checkinHabilitado").value(true));
-
-        // Sin fechaInicio se toma la fecha/hora de recepción
-        assertNotNull(guardado().getFechaInicio());
         checkin().andExpect(status().isCreated());
+    }
+
+    @Test
+    void unEventoRealProgramadoSinFechaEsInvalido() throws Exception {
+        enviar(cuerpo(evento, false, "PROGRAMADO", null)).andExpect(status().isBadRequest());
     }
 
     @Test
@@ -179,24 +193,8 @@ class EstadoEventoIntegracionTest {
         enviar(cuerpo(evento, false, "FINALIZADO", null))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.estado").value("FINALIZADO"));
-        // Para un evento que no es simulacro, PROGRAMADO equivale a EN_EJECUCION, que no sigue a FINALIZADO
+        // FINALIZADO es definitivo, también para un evento real
         enviar(cuerpo(evento, false, "PROGRAMADO", INICIO)).andExpect(status().isConflict());
-    }
-
-    @Test
-    void unProgramadoDespuesDeFinalizadoEsConflictoYNoModificaNada() throws Exception {
-        llevarA(EstadoEvento.FINALIZADO);
-        Evento antes = guardado();
-
-        enviar("PROGRAMADO", "2026-12-01T10:00:00-05:00")
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.codigo").value("CONFLICTO"))
-                .andExpect(jsonPath("$.mensaje").value(EstadoEventoService.TRANSICION_NO_PERMITIDA));
-
-        Evento despues = guardado();
-        assertEquals(EstadoEvento.FINALIZADO, despues.getEstado());
-        assertEquals(antes.getFechaInicio(), despues.getFechaInicio());
-        assertEquals(antes.getActualizadoEn(), despues.getActualizadoEn());
     }
 
     @Test

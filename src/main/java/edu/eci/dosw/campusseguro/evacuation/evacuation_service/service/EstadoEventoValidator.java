@@ -124,21 +124,18 @@ public final class EstadoEventoValidator {
     }
 
     /**
-     * La fecha llega en ISO-8601 con desfase horario y se guarda en UTC. En un simulacro es obligatoria con
-     * PROGRAMADO y no se envía con BORRADOR (RN-MS04-24). Un evento que no es simulacro queda EN_EJECUCION sea cual
-     * sea el estado enviado y, sin fecha, toma la de recepción (RN-MS04-20), así que esas dos reglas no le aplican.
-     * No se compara con el reloj
+     * La fecha llega en ISO-8601 con desfase horario y se guarda en UTC. Es obligatoria con PROGRAMADO y no se
+     * envía con BORRADOR (RN-MS04-24), sea o no simulacro (RN-MS04-20). No se compara con el reloj
      */
     private static Instant validarFecha(EstadoEventoRequest request, List<ErrorDetail> errores) {
         String texto = request.fechaInicio();
-        boolean noEsSimulacro = Boolean.FALSE.equals(request.simulacro());
         if (texto == null || texto.isBlank()) {
-            if (request.estado() == EstadoEvento.PROGRAMADO && !noEsSimulacro) {
+            if (request.estado() == EstadoEvento.PROGRAMADO) {
                 errores.add(new ErrorDetail(CAMPO_FECHA_INICIO, FALTA_FECHA));
             }
             return null;
         }
-        if (request.estado() == EstadoEvento.BORRADOR && !noEsSimulacro) {
+        if (request.estado() == EstadoEvento.BORRADOR) {
             errores.add(new ErrorDetail(CAMPO_FECHA_INICIO, FECHA_EN_BORRADOR));
             return null;
         }
