@@ -116,10 +116,10 @@ class RestriccionesBaseDatosTest {
 
     @ParameterizedTest
     @ValueSource(strings = { "BORRADOR", "PROGRAMADO" })
-    void unEventoQueNoEsSimulacroNuncaEstaEnBorradorNiProgramado(String estado) {
+    void unEventoRealPuedeEstarEnBorradorOProgramado(String estado) {
+        // Sigue los estados que envía MS06, igual que un simulacro (RN-MS04-20, database/004)
         String fecha = estado.equals("BORRADOR") ? null : "2026-11-20T15:00:00Z";
-        assertThrows(PersistenceException.class,
-                () -> ejecutar(insertarEvento(UUID.randomUUID().toString(), false, estado, fecha, null)));
+        assertDoesNotThrow(() -> ejecutar(insertarEvento(UUID.randomUUID().toString(), false, estado, fecha, null)));
     }
 
     @Test
