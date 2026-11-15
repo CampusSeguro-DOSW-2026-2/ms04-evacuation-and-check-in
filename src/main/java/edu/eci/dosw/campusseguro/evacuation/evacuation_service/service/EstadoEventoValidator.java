@@ -9,6 +9,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.ErrorResponse.ErrorDetail;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.Escenario;
@@ -47,9 +48,12 @@ public final class EstadoEventoValidator {
     static final int MAX_NOMBRE = 150;
     static final int MAX_ESCENARIO = 50;
 
-    /** Roles que pueden reportar su estado y por eso pueden convocarse (RN-MS04-24) */
-    static final Set<String> ROLES_CONVOCABLES = Set.of("ESTUDIANTE", "PROFESOR", "ADMINISTRATIVO", "BRIGADISTA",
-            "COORDINADOR", "ORGANIZADOR");
+    /**
+     * Formato de un nombre de rol (Estándares de Integración, sección 3): mayúsculas, dígitos y guion bajo, empieza con
+     * una letra, de 2 a 30 caracteres. Los roles son datos de MS01 y ya no son un conjunto fijo (sección 6), así que
+     * MS04 acepta como convocado cualquier rol con este formato, también uno creado por el administrador
+     */
+    static final Pattern FORMATO_ROL = Pattern.compile("^[A-Z][A-Z0-9_]{1,29}$");
 
     private EstadoEventoValidator() {
     }
@@ -164,11 +168,11 @@ public final class EstadoEventoValidator {
         return List.copyOf(normalizados);
     }
 
-    /** Solo roles de la comunidad y sin repetidos (RN-MS04-24) */
+    /** Roles con el formato de rol y sin repetidos (RN-MS04-24 con roles flexibles) */
     private static boolean rolesValidos(List<String> roles) {
         Set<String> vistos = new HashSet<>();
         for (String rol : roles) {
-            if (rol == null || !ROLES_CONVOCABLES.contains(rol) || !vistos.add(rol)) {
+            if (rol == null || !FORMATO_ROL.matcher(rol).matches() || !vistos.add(rol)) {
                 return false;
             }
         }

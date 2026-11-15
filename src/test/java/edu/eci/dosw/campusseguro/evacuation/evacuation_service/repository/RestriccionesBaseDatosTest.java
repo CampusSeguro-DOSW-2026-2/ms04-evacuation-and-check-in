@@ -122,11 +122,26 @@ class RestriccionesBaseDatosTest {
         assertDoesNotThrow(() -> ejecutar(insertarEvento(UUID.randomUUID().toString(), false, estado, fecha, null)));
     }
 
+    /** Inserta un evento PROGRAMADO con los roles convocados indicados (literal de arreglo de PostgreSQL) */
+    private String eventoConRoles(String roles) {
+        return "INSERT INTO eventos (id, nombre, simulacro, estado, fecha_inicio, roles_convocados) VALUES ('"
+                + UUID.randomUUID() + "', 'x', true, 'PROGRAMADO', now(), " + roles + ")";
+    }
+
+    /** Roles flexibles (database/005): un rol sin el formato de rol, un elemento nulo o la lista vacía fallan */
     @Test
-    void unRolConvocadoFueraDelCatalogoFallaPorCheck() {
-        assertThrows(PersistenceException.class, () -> ejecutar("INSERT INTO eventos (id, nombre, simulacro, "
-                + "estado, fecha_inicio, roles_convocados) VALUES ('" + UUID.randomUUID() + "', 'x', true, "
-                + "'PROGRAMADO', now(), ARRAY['ADMIN']::VARCHAR(20)[])"));
+    void unRolConvocadoSinElFormatoDeRolFallaPorCheck() {
+        for (String roles : new String[] { "ARRAY['admin']::VARCHAR(30)[]", "ARRAY['ROL-1']::VARCHAR(30)[]",
+                "ARRAY['ESTUDIANTE', NULL]::VARCHAR(30)[]", "ARRAY[]::VARCHAR(30)[]" }) {
+            assertThrows(PersistenceException.class, () -> ejecutar(eventoConRoles(roles)), roles);
+        }
+    }
+
+    /** Roles flexibles (database/005): cualquier rol con el formato, de hasta 30 caracteres, se guarda */
+    @Test
+    void unRolNuevoDeHasta30CaracteresSeGuarda() {
+        assertDoesNotThrow(() -> ejecutar(eventoConRoles(
+                "ARRAY['ADMIN', 'JEFE_DE_PISO_EDIFICIO_NORTE_AB']::VARCHAR(30)[]")));
     }
 
     @Test

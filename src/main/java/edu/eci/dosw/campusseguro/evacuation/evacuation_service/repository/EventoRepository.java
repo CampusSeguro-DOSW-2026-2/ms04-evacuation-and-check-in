@@ -98,7 +98,7 @@ public interface EventoRepository extends JpaRepository<Evento, UUID> {
      * @return los eventos activos que le aplican a esos roles
      */
     @Query(value = "SELECT * FROM eventos WHERE estado = 'EN_EJECUCION' "
-            + "AND roles_convocados && CAST(:roles AS VARCHAR(20)[]) ORDER BY fecha_inicio, creado_en",
+            + "AND roles_convocados && CAST(:roles AS VARCHAR(30)[]) ORDER BY fecha_inicio, creado_en",
             nativeQuery = true)
     List<Evento> buscarActivosPorRoles(@Param("roles") String rolesLiteral);
 
