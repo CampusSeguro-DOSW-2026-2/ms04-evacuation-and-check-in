@@ -12,6 +12,8 @@ import java.util.UUID;
  * @param resultado EXITO o FALLO
  * @param usuarioId usuario que ejecuta la acción; null si no hay usuario (p. ej. el cambio lo informa MS06)
  * @param usuarioRoles roles del usuario con el formato de X-User-Role, para propagar su identidad; null si no hay
+ * @param usuarioPermisos permisos del usuario con el formato de X-User-Permission, para propagar su identidad junto
+ *        con los roles; null si no hay
  * @param detalle código genérico del motivo o dato adicional; null si no aplica
  * @param correlationId correlation id de la petición
  * @param fecha fecha y hora de la acción
@@ -23,6 +25,7 @@ public record AuditEvent(
         AuditResult resultado,
         UUID usuarioId,
         String usuarioRoles,
+        String usuarioPermisos,
         String detalle,
         String correlationId,
         Instant fecha,

@@ -70,7 +70,8 @@ public class Ms05SolicitudAsistenciaClient implements SolicitudAsistenciaClient 
     }
 
     @Override
-    public ResultadoEnvioMs05 enviar(SolicitudAsistencia solicitud, String rolesUsuario, String correlationId) {
+    public ResultadoEnvioMs05 enviar(SolicitudAsistencia solicitud, String rolesUsuario, String permisosUsuario,
+            String correlationId) {
         if (gatewayUrl.isEmpty()) {
             log.error("GATEWAY_URL no está configurada: la solicitud de asistencia {} queda pendiente de envío",
                     solicitud.getId());
@@ -88,9 +89,12 @@ public class Ms05SolicitudAsistenciaClient implements SolicitudAsistenciaClient 
                         if (correlationId != null) {
                             headers.set(CorrelationIds.HEADER, correlationId);
                         }
-                        headers.set(IdentityHeaders.USER_ID, solicitud.getUsuarioId().toString());
-                        if (rolesUsuario != null && !rolesUsuario.isBlank()) {
+                        // El Gateway exige X-User-Id, X-User-Role y X-User-Permission juntas o ninguna: sin roles
+                        // ni permisos (reenvío periódico) no se propaga identidad; el usuario va en el cuerpo
+                        if (noVacio(rolesUsuario) && noVacio(permisosUsuario)) {
+                            headers.set(IdentityHeaders.USER_ID, solicitud.getUsuarioId().toString());
                             headers.set(IdentityHeaders.USER_ROLE, rolesUsuario);
+                            headers.set(IdentityHeaders.USER_PERMISSION, permisosUsuario);
                         }
                     })
                     // Ya serializado: así viaja con Content-Length y no en bloques (chunked), como la auditoría
@@ -119,6 +123,10 @@ public class Ms05SolicitudAsistenciaClient implements SolicitudAsistenciaClient 
                     e.getClass().getSimpleName());
             return ResultadoEnvioMs05.noDisponible(e.getClass().getSimpleName());
         }
+    }
+
+    private static boolean noVacio(String valor) {
+        return valor != null && !valor.isBlank();
     }
 
     private static String sinBarraFinal(String url) {

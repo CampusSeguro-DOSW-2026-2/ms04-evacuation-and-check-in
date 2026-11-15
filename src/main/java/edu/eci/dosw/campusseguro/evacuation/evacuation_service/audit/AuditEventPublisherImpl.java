@@ -79,10 +79,12 @@ public class AuditEventPublisherImpl implements AuditEventPublisher {
         if (event.correlationId() != null) {
             request.header(CorrelationIds.HEADER, event.correlationId());
         }
-        // Si la acción la hizo un usuario, se propaga su identidad sin modificarla (Estándares, sección 5)
-        if (event.usuarioId() != null && event.usuarioRoles() != null) {
+        // Si la acción la hizo un usuario, se propaga su identidad sin modificarla (Estándares, sección 5): las tres
+        // cabeceras juntas o ninguna, porque el Gateway responde 400 si falta alguna
+        if (event.usuarioId() != null && event.usuarioRoles() != null && event.usuarioPermisos() != null) {
             request.header(IdentityHeaders.USER_ID, event.usuarioId().toString());
             request.header(IdentityHeaders.USER_ROLE, event.usuarioRoles());
+            request.header(IdentityHeaders.USER_PERMISSION, event.usuarioPermisos());
         }
     }
 

@@ -99,6 +99,7 @@ class Ms02PuntoEncuentroClientTest {
         assertEquals("corr-123", h.getFirst("X-Correlation-ID"));
         assertEquals(USUARIO.userId().toString(), h.getFirst("X-User-Id"));
         assertEquals("BRIGADISTA,PROFESOR", h.getFirst("X-User-Role"));
+        assertEquals(USUARIO.permisosComoCabecera(), h.getFirst("X-User-Permission"));
     }
 
     @Test

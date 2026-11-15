@@ -144,6 +144,7 @@ class Ms01PoblacionObjetivoClientTest {
         assertEquals("c19b472d-7a2a-4d3b-a12b-abcdef123456", peticion.headers().getFirst("X-Correlation-ID"));
         assertEquals(ANA.toString(), peticion.headers().getFirst("X-User-Id"));
         assertEquals("AUDITOR", peticion.headers().getFirst("X-User-Role"));
+        assertEquals(AUDITOR.permisosComoCabecera(), peticion.headers().getFirst("X-User-Permission"));
     }
 
     /**

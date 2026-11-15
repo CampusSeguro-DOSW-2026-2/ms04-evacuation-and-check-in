@@ -73,8 +73,8 @@ class AuditEventPublisherTest {
     }
 
     private AuditEvent eventoDeUsuario() {
-        return new AuditEvent(AuditAction.REGISTRO_CHECKIN, AuditResult.EXITO, USUARIO, "BRIGADISTA,ESTUDIANTE", null,
-                CORRELATION, FECHA, "checkin:" + CHECKIN);
+        return new AuditEvent(AuditAction.REGISTRO_CHECKIN, AuditResult.EXITO, USUARIO, "BRIGADISTA,ESTUDIANTE",
+                "ms04:checkin:write,ms04:dashboard:read", null, CORRELATION, FECHA, "checkin:" + CHECKIN);
     }
 
     private Recibido esperar() throws InterruptedException {
@@ -94,6 +94,7 @@ class AuditEventPublisherTest {
         assertEquals(CORRELATION, recibido.cabeceras().get("X-correlation-id").get(0));
         assertEquals(USUARIO.toString(), recibido.cabeceras().get("X-user-id").get(0));
         assertEquals("BRIGADISTA,ESTUDIANTE", recibido.cabeceras().get("X-user-role").get(0));
+        assertEquals("ms04:checkin:write,ms04:dashboard:read", recibido.cabeceras().get("X-user-permission").get(0));
         assertTrue(recibido.cabeceras().get("Content-type").get(0).startsWith("application/json"));
     }
 
@@ -109,7 +110,7 @@ class AuditEventPublisherTest {
 
     @Test
     void unEventoSinUsuarioNoPropagaIdentidadYLlevaUsuarioNulo() throws Exception {
-        AuditEvent evento = new AuditEvent(AuditAction.CAMBIO_ESTADO_EVENTO, AuditResult.EXITO, null, null,
+        AuditEvent evento = new AuditEvent(AuditAction.CAMBIO_ESTADO_EVENTO, AuditResult.EXITO, null, null, null,
                 "origen=ms06 anterior=PROGRAMADO nuevo=EN_EJECUCION", CORRELATION, FECHA, "evento:" + CHECKIN);
 
         publicador(url(), "clave").publish(evento);
@@ -117,6 +118,7 @@ class AuditEventPublisherTest {
         Recibido recibido = esperar();
         assertNull(recibido.cabeceras().get("X-user-id"));
         assertNull(recibido.cabeceras().get("X-user-role"));
+        assertNull(recibido.cabeceras().get("X-user-permission"));
         assertTrue(recibido.cuerpo().startsWith("{\"usuario_id\":null,\"modulo\":\"MS04\","
                 + "\"accion\":\"CAMBIO_ESTADO_EVENTO\""));
         assertTrue(recibido.cuerpo().contains("\"detalle\":\"origen=ms06 anterior=PROGRAMADO nuevo=EN_EJECUCION\""));
@@ -159,7 +161,7 @@ class AuditEventPublisherTest {
 
     @Test
     void elJsonEscapaElDetalle() {
-        AuditEvent evento = new AuditEvent(AuditAction.SOLICITUD_ASISTENCIA, AuditResult.FALLO, USUARIO, null,
+        AuditEvent evento = new AuditEvent(AuditAction.SOLICITUD_ASISTENCIA, AuditResult.FALLO, USUARIO, null, null,
                 "dijo \"hola\"\n", CORRELATION, FECHA, null);
 
         String json = AuditEventPublisherImpl.toJson(evento);

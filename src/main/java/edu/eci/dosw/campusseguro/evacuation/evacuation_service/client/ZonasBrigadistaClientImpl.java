@@ -13,7 +13,7 @@ import tools.jackson.databind.JsonNode;
 
 /**
  * Pide las zonas del brigadista a MS05 con {@code GET /api/v1/panel/zones}, que MS04 llama en nombre del brigadista
- * propagando X-User-Id y X-User-Role (permiso ms05:panel:read_own de la Matriz).
+ * propagando X-User-Id, X-User-Role y X-User-Permission (permiso ms05:panel:read_own de la Matriz).
  *
  * La ruta y la respuesta son las que MS04 espera hasta que los squads las acuerden:
  * {@code {"edificios": [uuid], "espacios": [uuid], "puntos_encuentro": [uuid]}}, con las zonas ya expandidas a ids de
@@ -38,7 +38,8 @@ public class ZonasBrigadistaClientImpl implements ZonasBrigadistaClient {
 
     @Override
     public ZonasAsignadas zonasDe(RequesterIdentity brigadista) {
-        JsonNode respuesta = gateway.get(ZONES_PATH, brigadista.userId(), brigadista.rolesComoCabecera());
+        JsonNode respuesta = gateway.get(ZONES_PATH, brigadista.userId(), brigadista.rolesComoCabecera(),
+                brigadista.permisosComoCabecera());
         try {
             Set<UUID> edificios = new HashSet<>();
             for (JsonNode id : respuesta.path("edificios")) {

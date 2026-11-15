@@ -43,7 +43,8 @@ class ZonasBrigadistaClientTest {
      */
     @Test
     void llamaEnNombreDelBrigadistaYLeeLasTresListas() {
-        when(gateway.get(ZonasBrigadistaClientImpl.ZONES_PATH, BRIGADISTA, "BRIGADISTA,ESTUDIANTE"))
+        when(gateway.get(ZonasBrigadistaClientImpl.ZONES_PATH, BRIGADISTA, "BRIGADISTA,ESTUDIANTE",
+                IDENTIDAD.permisosComoCabecera()))
                 .thenReturn(json.readTree("""
                         {"edificios":["%s"],"espacios":["%s"],"puntos_encuentro":["%s","%s"]}"""
                         .formatted(EDIFICIO, ESPACIO, PUNTO, PUNTO)));
@@ -60,7 +61,8 @@ class ZonasBrigadistaClientTest {
      */
     @Test
     void sinZonasDevuelveConjuntosVacios() {
-        when(gateway.get(ZonasBrigadistaClientImpl.ZONES_PATH, BRIGADISTA, "BRIGADISTA,ESTUDIANTE"))
+        when(gateway.get(ZonasBrigadistaClientImpl.ZONES_PATH, BRIGADISTA, "BRIGADISTA,ESTUDIANTE",
+                IDENTIDAD.permisosComoCabecera()))
                 .thenReturn(json.readTree("{\"edificios\":[]}"));
 
         ZonasAsignadas zonas = new ZonasBrigadistaClientImpl(gateway).zonasDe(IDENTIDAD);
@@ -75,7 +77,8 @@ class ZonasBrigadistaClientTest {
      */
     @Test
     void siMs05NoRespondeResponde503() {
-        when(gateway.get(ZonasBrigadistaClientImpl.ZONES_PATH, BRIGADISTA, "BRIGADISTA,ESTUDIANTE"))
+        when(gateway.get(ZonasBrigadistaClientImpl.ZONES_PATH, BRIGADISTA, "BRIGADISTA,ESTUDIANTE",
+                IDENTIDAD.permisosComoCabecera()))
                 .thenThrow(ApiException.dependenciaNoDisponible());
 
         ApiException error = assertThrows(ApiException.class,
@@ -89,7 +92,8 @@ class ZonasBrigadistaClientTest {
      */
     @Test
     void siMs05EntregaIdsInvalidosResponde503() {
-        when(gateway.get(ZonasBrigadistaClientImpl.ZONES_PATH, BRIGADISTA, "BRIGADISTA,ESTUDIANTE"))
+        when(gateway.get(ZonasBrigadistaClientImpl.ZONES_PATH, BRIGADISTA, "BRIGADISTA,ESTUDIANTE",
+                IDENTIDAD.permisosComoCabecera()))
                 .thenReturn(json.readTree("{\"puntos_encuentro\":[\"3\"]}"));
 
         ApiException error = assertThrows(ApiException.class,
