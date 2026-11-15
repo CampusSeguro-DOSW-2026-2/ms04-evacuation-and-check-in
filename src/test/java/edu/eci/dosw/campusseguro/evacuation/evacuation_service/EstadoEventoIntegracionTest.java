@@ -37,6 +37,7 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.Identity
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.service.EstadoEventoService;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.service.EstadoEventoValidator;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.PostgresTestcontainerConfig;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.IdentidadesDePrueba;
 import jakarta.persistence.EntityManager;
 
 /**
@@ -107,7 +108,7 @@ class EstadoEventoIntegracionTest {
 
     private ResultActions checkin() throws Exception {
         return mockMvc.perform(post(BASE + evento + "/checkins")
-                .header(IdentityHeaders.USER_ID, ESTUDIANTE).header(IdentityHeaders.USER_ROLE, "ESTUDIANTE")
+                .header(IdentityHeaders.USER_ID, ESTUDIANTE).header(IdentityHeaders.USER_ROLE, "ESTUDIANTE").header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos("ESTUDIANTE"))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"estado\":\"EVACUATING\"}"));
     }
 

@@ -41,6 +41,7 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.Correlat
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.IdentityHeaders;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.service.HistorialService;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.util.CorrelationIds;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.IdentidadesDePrueba;
 
 /**
  * Contrato HTTP de RF-MS04-09: GET /api/v1/chi/eventos/{eventoId}/historial con el service real y los
@@ -99,7 +100,7 @@ class HistorialHttpTest {
      * @return la petición con las cabeceras de identidad y de correlación
      */
     private MockHttpServletRequestBuilder como(String ruta, String rol) {
-        return get(ruta).header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, rol)
+        return get(ruta).header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, rol).header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos(rol))
                 .header(CorrelationIds.HEADER, CORRELATION);
     }
 

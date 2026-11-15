@@ -19,7 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.RequesterIdentity;
-import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.Rol;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.IdentidadesDePrueba;
 
 class AuditRecorderTest {
 
@@ -45,7 +45,7 @@ class AuditRecorderTest {
 
     @Test
     void recordAsLlevaLaIdentidadDelUsuarioConSusRolesOrdenados() {
-        RequesterIdentity usuario = new RequesterIdentity(USUARIO, Set.of(Rol.ESTUDIANTE, Rol.BRIGADISTA));
+        RequesterIdentity usuario = IdentidadesDePrueba.identidad(USUARIO, "ESTUDIANTE", "BRIGADISTA");
 
         auditor.recordAs(AuditAction.REGISTRO_CHECKIN, AuditResult.EXITO, usuario, "evento:" + EVENTO, null,
                 CORRELATION);

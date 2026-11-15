@@ -2,7 +2,8 @@ package edu.eci.dosw.campusseguro.evacuation.evacuation_service.security;
 
 /**
  * Permisos de MS04 según la Matriz Rol-Permiso (wiki de documentation). Son los mismos códigos que lleva el
- * {@code x-permiso} del OpenAPI de MS04
+ * {@code x-permiso} del OpenAPI de MS04 y los que llegan en X-User-Permission. Qué rol tiene cada permiso es dato
+ * de MS01 y lo edita el administrador, por eso MS04 no guarda ninguna relación entre roles y permisos
  */
 public enum Permiso {
 

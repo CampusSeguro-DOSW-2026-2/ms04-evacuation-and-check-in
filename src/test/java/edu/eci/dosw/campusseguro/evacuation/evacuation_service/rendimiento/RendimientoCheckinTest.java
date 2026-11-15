@@ -7,7 +7,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Callable;
@@ -34,10 +33,10 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.EstadoEven
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.Evento;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.EventoRepository;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.RequesterIdentity;
-import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.Rol;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.service.CheckinService;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.service.DashboardService;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.PostgresTestcontainerConfig;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.IdentidadesDePrueba;
 
 /**
  * Rendimiento y concurrencia del check-in (historia KAIR-606, subtareas KAIR-680 y KAIR-681), con la aplicación
@@ -67,8 +66,7 @@ class RendimientoCheckinTest {
     /** RNF-MS04-01: porcentaje mínimo de check-ins por debajo del límite */
     private static final double PORCENTAJE_MINIMO = 0.80;
 
-    private static final RequesterIdentity COORDINADOR = new RequesterIdentity(UUID.randomUUID(),
-            EnumSet.of(Rol.COORDINADOR));
+    private static final RequesterIdentity COORDINADOR = IdentidadesDePrueba.identidad(UUID.randomUUID(), "COORDINADOR");
 
     @Autowired
     private CheckinService checkinService;
@@ -97,7 +95,7 @@ class RendimientoCheckinTest {
     }
 
     private static RequesterIdentity estudiante(UUID usuario) {
-        return new RequesterIdentity(usuario, EnumSet.of(Rol.ESTUDIANTE));
+        return IdentidadesDePrueba.identidad(usuario, "ESTUDIANTE");
     }
 
     private Medicion reportar(UUID eventoId, UUID usuario, EstadoCheckin estado) {

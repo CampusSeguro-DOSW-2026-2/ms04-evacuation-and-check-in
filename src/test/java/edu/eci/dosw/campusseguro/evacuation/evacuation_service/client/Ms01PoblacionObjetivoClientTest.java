@@ -10,7 +10,6 @@ import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -29,8 +28,8 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.RequesterIdentity;
-import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.Rol;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.util.CorrelationIds;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.IdentidadesDePrueba;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -43,7 +42,7 @@ class Ms01PoblacionObjetivoClientTest {
     private static final UUID BETO = UUID.fromString("5a2b7c9d-1e3f-4a5b-8c7d-9e0f1a2b3c4d");
     private static final UUID CARLA = UUID.fromString("6b3c8d0e-2f4a-4b6c-9d8e-0f1a2b3c4d5e");
     private static final Instant CORTE = Instant.parse("2026-11-20T15:00:00Z");
-    private static final RequesterIdentity AUDITOR = new RequesterIdentity(ANA, EnumSet.of(Rol.AUDITOR));
+    private static final RequesterIdentity AUDITOR = IdentidadesDePrueba.identidad(ANA, "AUDITOR");
 
     private HttpServer servidor;
     private final List<HttpExchangeCapturado> peticiones = new CopyOnWriteArrayList<>();

@@ -61,6 +61,7 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.Evento
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.IdentityHeaders;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.service.SolicitudAsistenciaService;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.PostgresTestcontainerConfig;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.IdentidadesDePrueba;
 
 /**
  * RF-MS04-04 Generar solicitud de asistencia en MS05, de punta a punta con PostgreSQL real. MS05, MS02 y el envío a
@@ -126,7 +127,7 @@ class SolicitudAsistenciaIntegracionTest {
     private ResultActions reportar(UUID eventoId, String cuerpo) throws Exception {
         return mockMvc.perform(post("/api/v1/chi/eventos/{id}/checkins", eventoId)
                 .header(IdentityHeaders.USER_ID, USUARIO.toString())
-                .header(IdentityHeaders.USER_ROLE, "ESTUDIANTE")
+                .header(IdentityHeaders.USER_ROLE, "ESTUDIANTE").header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos("ESTUDIANTE"))
                 .header("X-Correlation-ID", CORRELATION_ID)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(cuerpo));

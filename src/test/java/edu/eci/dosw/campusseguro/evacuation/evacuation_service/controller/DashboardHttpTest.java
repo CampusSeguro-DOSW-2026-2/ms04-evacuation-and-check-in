@@ -15,7 +15,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
-import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -62,9 +61,9 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.Solici
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.CorrelationIdFilter;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.IdentityHeaders;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.RequesterIdentity;
-import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.Rol;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.service.DashboardService;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.util.CorrelationIds;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.IdentidadesDePrueba;
 
 /**
  * Contrato HTTP de RF-MS04-06, RF-MS04-07 y RF-MS04-08: GET /api/v1/chi/eventos/{eventoId}/consolidado, /personas,
@@ -178,7 +177,7 @@ class DashboardHttpTest {
      * @return la petición con las cabeceras de identidad y de correlación
      */
     private MockHttpServletRequestBuilder como(String ruta, String rol) {
-        return get(ruta).header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, rol)
+        return get(ruta).header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, rol).header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos(rol))
                 .header(CorrelationIds.HEADER, CORRELATION);
     }
 
@@ -342,7 +341,7 @@ class DashboardHttpTest {
                 .andExpect(jsonPath("$.totales_por_estado.OFF_CAMPUS").value(0))
                 .andExpect(jsonPath("$.total_reportados").value(7));
 
-        verify(zonasBrigadista).zonasDe(new RequesterIdentity(UUID.fromString(USUARIO), EnumSet.of(Rol.BRIGADISTA)));
+        verify(zonasBrigadista).zonasDe(IdentidadesDePrueba.identidad(UUID.fromString(USUARIO), "BRIGADISTA"));
     }
 
     // ---------------------------------------------------------------- personas
@@ -777,7 +776,7 @@ class DashboardHttpTest {
         mockMvc.perform(como(BASE + "/pendientes", "AUDITOR")).andExpect(status().isOk());
 
         verify(poblacionObjetivo).usuariosActivosPorRoles(ROLES, INICIO,
-                new RequesterIdentity(UUID.fromString(USUARIO), EnumSet.of(Rol.AUDITOR)));
+                IdentidadesDePrueba.identidad(UUID.fromString(USUARIO), "AUDITOR"));
     }
 
     // ---------------------------------------------------------------- asistencia
@@ -961,7 +960,7 @@ class DashboardHttpTest {
                 .andExpect(jsonPath("$.contenido[0].usuario_id").value(ANA.toString()))
                 .andExpect(jsonPath("$.total_elementos").value(1));
 
-        verify(zonasBrigadista).zonasDe(new RequesterIdentity(UUID.fromString(USUARIO), EnumSet.of(Rol.BRIGADISTA)));
+        verify(zonasBrigadista).zonasDe(IdentidadesDePrueba.identidad(UUID.fromString(USUARIO), "BRIGADISTA"));
     }
 
     /**

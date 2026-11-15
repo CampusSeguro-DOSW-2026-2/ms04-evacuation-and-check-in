@@ -10,7 +10,6 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.Instant;
-import java.util.EnumSet;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -35,7 +34,7 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.Checki
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.EventoRepository;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.SolicitudAsistenciaRepository;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.RequesterIdentity;
-import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.Rol;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.IdentidadesDePrueba;
 
 /**
  * Lógica de RF-MS04-05 (consultar el propio estado vigente) con los repositorios simulados
@@ -69,7 +68,7 @@ class EstadoPropioServiceTest {
     @BeforeEach
     void preparar() {
         service = new EstadoPropioService(eventos, checkins, solicitudes);
-        requester = new RequesterIdentity(USUARIO, EnumSet.of(Rol.ESTUDIANTE));
+        requester = IdentidadesDePrueba.identidad(USUARIO, "ESTUDIANTE");
     }
 
     /**
@@ -237,7 +236,7 @@ class EstadoPropioServiceTest {
     @Test
     void soloConsultaPorElIdDeUsuarioDeLaIdentidad() {
         UUID otroUsuario = UUID.fromString("5d2e8f10-6a4b-4c93-b7e1-3f9a0c2d4e68");
-        RequesterIdentity otro = new RequesterIdentity(otroUsuario, EnumSet.of(Rol.PROFESOR));
+        RequesterIdentity otro = IdentidadesDePrueba.identidad(otroUsuario, "PROFESOR");
         when(eventos.existsById(EVENTO)).thenReturn(true);
         when(checkins.buscarVigente(EVENTO, otroUsuario)).thenReturn(Optional.empty());
 

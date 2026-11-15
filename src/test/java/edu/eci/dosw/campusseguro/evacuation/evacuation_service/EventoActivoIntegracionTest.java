@@ -25,6 +25,7 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.Evento;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.EventoRepository;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.IdentityHeaders;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.PostgresTestcontainerConfig;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.IdentidadesDePrueba;
 
 /**
  * RF-MS04-01 Consultar eventos activos, de punta a punta: la petición HTTP con las cabeceras del Gateway, el
@@ -60,7 +61,7 @@ class EventoActivoIntegracionTest {
     }
 
     private MockHttpServletRequestBuilder como(String roles) {
-        return get(RUTA).header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, roles);
+        return get(RUTA).header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, roles).header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos(roles));
     }
 
     @Test

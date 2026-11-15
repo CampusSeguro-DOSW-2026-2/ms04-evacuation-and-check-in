@@ -94,7 +94,8 @@ public class GlobalExceptionHandler {
             HttpServletRequest request) {
         String header = ex.getHeaderName();
         if (IdentityHeaders.USER_ID.equalsIgnoreCase(header)
-                || IdentityHeaders.USER_ROLE.equalsIgnoreCase(header)) {
+                || IdentityHeaders.USER_ROLE.equalsIgnoreCase(header)
+                || IdentityHeaders.USER_PERMISSION.equalsIgnoreCase(header)) {
             return build(ErrorCode.UNAUTHENTICATED, IdentityHeaders.MISSING_MESSAGE, List.of(), request,
                     HttpHeaders.EMPTY);
         }

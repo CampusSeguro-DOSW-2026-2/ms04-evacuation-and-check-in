@@ -8,7 +8,7 @@ import org.springframework.web.method.support.ModelAndViewContainer;
 
 /**
  * Permite que los controllers reciban la identidad del solicitante como un parámetro
- * {@link RequesterIdentity}, armada con las cabeceras X-User-Id y X-User-Role
+ * {@link RequesterIdentity}, armada con las cabeceras X-User-Id, X-User-Role y X-User-Permission
  */
 public class RequesterIdentityArgumentResolver implements HandlerMethodArgumentResolver {
 
@@ -22,6 +22,7 @@ public class RequesterIdentityArgumentResolver implements HandlerMethodArgumentR
             NativeWebRequest webRequest, WebDataBinderFactory binderFactory) {
         return IdentityHeaderParser.parse(
                 webRequest.getHeader(IdentityHeaders.USER_ID),
-                webRequest.getHeader(IdentityHeaders.USER_ROLE));
+                webRequest.getHeader(IdentityHeaders.USER_ROLE),
+                webRequest.getHeader(IdentityHeaders.USER_PERMISSION));
     }
 }

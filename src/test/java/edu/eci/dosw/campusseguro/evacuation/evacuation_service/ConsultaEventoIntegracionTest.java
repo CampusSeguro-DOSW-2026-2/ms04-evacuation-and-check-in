@@ -36,6 +36,7 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.Evento;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.EventoRepository;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.IdentityHeaders;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.PostgresTestcontainerConfig;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.IdentidadesDePrueba;
 
 /**
  * RF-MS04-13 Consultar eventos (historia KAIR-604), de punta a punta: las cabeceras del Gateway, el permiso
@@ -72,7 +73,7 @@ class ConsultaEventoIntegracionTest {
     }
 
     private static MockHttpServletRequestBuilder como(MockHttpServletRequestBuilder request, String roles) {
-        return request.header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, roles);
+        return request.header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, roles).header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos(roles));
     }
 
     /** Recorre todas las páginas de la lista y devuelve los ids en el orden de la respuesta */
