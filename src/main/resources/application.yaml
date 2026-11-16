@@ -73,9 +73,11 @@ clients:
     # Zona segura (punto de encuentro) por id; responde id, codigo, nombre y estado (ACTIVO o INACTIVO)
     safe-zones-path: ${MS02_SAFE_ZONES_PATH:/api/v1/safe-zones/{id}}
   ms05:
-    # Ruta interna para crear la solicitud de asistencia (RF-MS04-04). PROVISIONAL: MS05 aún no publica este
-    # endpoint (decisión abierta n.º 3 de los Estándares); se ajusta aquí cuando se acuerde el contrato
-    solicitudes-path: ${MS05_SOLICITUDES_PATH:/api/v1/internal/solicitudes-asistencia}
+    # Ruta de MS05 para crear la solicitud de asistencia (RF-MS04-04): el endpoint que ya publica para registrar
+    # incidentes (RF-BEI-04); {eventoId} se reemplaza por el evento de la solicitud
+    solicitudes-path: ${MS05_SOLICITUDES_PATH:/api/v1/incidentes/eventos/{eventoId}}
+    # Id de la prioridad de MS05 con la que se registra la solicitud de asistencia (1 = EMERGENCIA)
+    prioridad-id: ${MS05_PRIORIDAD_ID:1}
 
 # Tarea periódica que reenvía a MS05 las solicitudes de asistencia PENDIENTE_ENVIO (RN-MS04-12)
 solicitudes-asistencia:

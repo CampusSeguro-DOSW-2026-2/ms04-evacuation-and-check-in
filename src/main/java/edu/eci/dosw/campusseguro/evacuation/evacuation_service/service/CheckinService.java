@@ -182,6 +182,11 @@ public class CheckinService {
         if (nuevo.getEstado() == EstadoCheckin.NEEDS_ASSISTANCE) {
             // RF-MS04-04: la solicitud se registra en la misma transacción que el check-in, en PENDIENTE_ENVIO
             RegistroSolicitud solicitud = solicitudes.registrar(nuevo);
+            if (solicitud.nueva()) {
+                // MS05 registra la solicitud a nombre del usuario: su identidad se guarda para el reenvío periódico
+                solicitud.solicitud().setIdentidadSolicitante(requester.rolesComoCabecera(),
+                        requester.permisosComoCabecera());
+            }
             return new Registro(nuevo, vigente.isEmpty(), vigente.orElse(null), solicitud.solicitud(),
                     solicitud.nueva());
         }

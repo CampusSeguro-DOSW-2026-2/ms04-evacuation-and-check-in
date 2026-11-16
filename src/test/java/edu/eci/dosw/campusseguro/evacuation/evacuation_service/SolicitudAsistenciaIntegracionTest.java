@@ -7,7 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -313,15 +312,19 @@ class SolicitudAsistenciaIntegracionTest {
         }
 
         @Test
-        void elReenvioPropagaElUsuarioPeroNoRolesYUsaUnCorrelationIdNuevo() throws Exception {
+        void elReenvioUsaLaIdentidadGuardadaConLaSolicitudYUnCorrelationIdNuevo() throws Exception {
             Evento evento = enEjecucion();
             when(ms05.enviar(any(), any(), any(), any())).thenReturn(ResultadoEnvioMs05.noDisponible("caído"));
             reportar(evento.getId(), asistencia("EDIFICIO", EDIFICIO));
 
             service.reenviarPendientes();
 
+            // El primer envío (el del check-in) y el reenvío llevan los mismos roles y permisos del usuario
             ArgumentCaptor<String> correlation = ArgumentCaptor.forClass(String.class);
-            verify(ms05).enviar(any(), isNull(), isNull(), correlation.capture());
+            verify(ms05).enviar(any(), eq("ESTUDIANTE"), eq(IdentidadesDePrueba.permisos("ESTUDIANTE")),
+                    eq(CORRELATION_ID));
+            verify(ms05, times(2)).enviar(any(), eq("ESTUDIANTE"), eq(IdentidadesDePrueba.permisos("ESTUDIANTE")),
+                    correlation.capture());
             assertTrue(!CORRELATION_ID.equals(correlation.getValue()));
             assertEquals(4, UUID.fromString(correlation.getValue()).version());
         }
