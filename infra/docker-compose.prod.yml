@@ -1,37 +1,15 @@
-# Stack de MS04 en la nube: uno por entorno en la misma VM (ms04-prod y ms04-test), cada uno con su BD.
-# No publica puertos: solo el Caddy de borde de la VM (red campus-edge) llega a MS04, con el alias ms04-<entorno>,
-# y la BD solo es visible dentro del stack. Lo usa infra/deploy.sh con el .env que escribe en DEPLOY_DIR/<entorno>;
-# no se ejecuta a mano.
+# Stack de MS04 en la nube: uno por entorno en la misma VM (ms04-prod y ms04-test).
+# No publica puertos: solo el Caddy de borde de la VM (red campus-edge) llega a MS04, con el alias ms04-<entorno>.
+# La BD de cada entorno está en su propia VM (infra/db/docker-compose.db.yml) y MS04 llega a ella por la IP privada
+# (DB_HOST:DB_PORT). Lo usa infra/deploy.sh con el .env que escribe en DEPLOY_DIR/<entorno>; no se ejecuta a mano.
 name: ms04-${ENTORNO:?ENTORNO es obligatoria (test o prod)}
 
 services:
-  db:
-    image: postgres:17.6-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ms04_db
-      POSTGRES_USER: ms04_user
-      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD es obligatoria}
-    volumes:
-      - datos:/var/lib/postgresql/data
-      # Esquema inicial (database/*.sql): Postgres solo lo ejecuta la primera vez, con el volumen vacío.
-      - ./database:/docker-entrypoint-initdb.d:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ms04_user -d ms04_db"]
-      interval: 5s
-      timeout: 5s
-      retries: 12
-    networks:
-      - interna
-
   ms04:
     image: ${IMAGE:?IMAGE es obligatoria}:${TAG:?TAG es obligatoria (sha-xxxxxxx)}
     restart: unless-stopped
-    depends_on:
-      db:
-        condition: service_healthy
     environment:
-      DB_URL: jdbc:postgresql://db:5432/ms04_db
+      DB_URL: jdbc:postgresql://${DB_HOST:?DB_HOST es obligatoria (IP privada de la VM de la BD)}:${DB_PORT:?DB_PORT es obligatoria}/ms04_db
       DB_USERNAME: ms04_user
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD es obligatoria}
       SERVER_PORT: "8084"
@@ -44,16 +22,11 @@ services:
       - path: extra.env
         required: false
     networks:
-      interna:
       edge:
         aliases:
           - ms04-${ENTORNO}
 
-volumes:
-  datos:
-
 networks:
-  interna:
   edge:
     name: campus-edge
     external: true
