@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# Despliega MS04 en su VM: stack ms04-<entorno> (MS04 + PostgreSQL) detrás del Caddy de borde, y verifica el despliegue.
+# Despliega MS04 en su VM: stack ms04-<entorno> detrás del Caddy de borde, y verifica el despliegue.
+# La BD de cada entorno está en otra VM (infra/db/docker-compose.db.yml), en DB_HOST:DB_PORT por la IP privada.
 # Lo ejecuta el runner self-hosted desde .github/workflows/deploy.yml con las variables y secretos del Environment
 # ms04-<entorno> de GitHub. Es idempotente: volver a ejecutarlo con otro TAG es el rollback.
 # El borde (Caddy con mTLS) se levanta una sola vez a mano, con la guía "Conexión al API Gateway" de la wiki.
 set -euo pipefail
 
 falta() { echo "::error::Falta la variable $1 (Environment ms04-${ENTORNO:-?} en GitHub)" >&2; exit 1; }
-for VAR in ENTORNO DB_PASSWORD GATEWAY_URL GATEWAY_SERVICE_KEY; do
+for VAR in ENTORNO DB_HOST DB_PASSWORD GATEWAY_URL GATEWAY_SERVICE_KEY; do
     [ -n "${!VAR:-}" ] || falta "$VAR"
 done
 [[ "$ENTORNO" =~ ^(test|prod)$ ]] || { echo "::error::ENTORNO debe ser test o prod" >&2; exit 1; }
@@ -19,9 +20,18 @@ IMAGE="${IMAGE:-ghcr.io/campusseguro-dosw-2026-2/ms04-evacuation-and-check-in}"
 DEPLOY_DIR="${DEPLOY_DIR:-$HOME/campusseguro/ms04}"
 PUERTO=$([ "$ENTORNO" = prod ] && echo 443 || echo 8443)
 STACK_DIR="$DEPLOY_DIR/$ENTORNO"
+# Puerto de la BD del entorno en su VM: prod 5432 y test 5433 (infra/db/docker-compose.db.yml), salvo DB_PORT.
+DB_PORT="${DB_PORT:-$([ "$ENTORNO" = prod ] && echo 5432 || echo 5433)}"
+[[ "$DB_PORT" =~ ^[0-9]+$ ]] || { echo "::error::DB_PORT debe ser un número (recibido: $DB_PORT)" >&2; exit 1; }
 
 docker network inspect campus-edge >/dev/null 2>&1 || {
     echo "::error::No existe la red campus-edge: levante primero el borde Caddy de la VM (README, Despliegue en la nube)" >&2
+    exit 1
+}
+
+# Antes de tocar el stack: la BD debe aceptar conexiones (VM encendida, Security Group y contenedor del entorno).
+timeout 5 bash -c "exec 3<>/dev/tcp/$DB_HOST/$DB_PORT" 2>/dev/null || {
+    echo "::error::No se llega a la BD en $DB_HOST:$DB_PORT: revise la VM de la BD, su Security Group y su contenedor $ENTORNO" >&2
     exit 1
 }
 
@@ -34,18 +44,16 @@ linea_env() {
 }
 
 umask 077
-mkdir -p "$STACK_DIR/database"
+mkdir -p "$STACK_DIR"
 
 echo "== Archivos del despliegue ($ENTORNO, $TAG) en $STACK_DIR"
 cp "$REPO_DIR/infra/docker-compose.prod.yml" "$STACK_DIR/docker-compose.yml"
-cp "$REPO_DIR"/database/*.sql "$STACK_DIR/database/"
-# Postgres lee los scripts con su propio usuario: la carpeta del esquema no lleva secretos.
-chmod 755 "$STACK_DIR/database"
-chmod 644 "$STACK_DIR"/database/*.sql
 {
     linea_env ENTORNO "$ENTORNO"
     linea_env IMAGE "$IMAGE"
     linea_env TAG "$TAG"
+    linea_env DB_HOST "$DB_HOST"
+    linea_env DB_PORT "$DB_PORT"
     linea_env DB_PASSWORD "$DB_PASSWORD"
     linea_env GATEWAY_URL "$GATEWAY_URL"
     linea_env GATEWAY_SERVICE_KEY "$GATEWAY_SERVICE_KEY"
@@ -64,7 +72,7 @@ C=(docker compose --project-directory "$STACK_DIR")
 [ -z "${GHCR_TOKEN:-}" ] || docker logout ghcr.io >/dev/null
 
 # El firewall y el mTLS impiden probar desde fuera: se prueba dentro de la VM, por la red campus-edge.
-echo "== Verificación de http://ms04-$ENTORNO:8084/actuator/health (espera hasta 3 min: arranque de MS04 y la BD)"
+echo "== Verificación de http://ms04-$ENTORNO:8084/actuator/health (espera hasta 3 min: arranque de MS04)"
 CURL=(docker run --rm --network campus-edge curlimages/curl:8.11.1 -s -o /dev/null -w '%{http_code}')
 for _ in $(seq 1 36); do
     if [ "$("${CURL[@]}" "http://ms04-$ENTORNO:8084/actuator/health" || true)" = 200 ]; then

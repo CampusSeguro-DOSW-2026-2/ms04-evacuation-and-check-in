@@ -87,9 +87,12 @@ MS04 corre en su propia VM, detrás del API Gateway. La guía completa, con los 
 de la wiki:
 * El firewall solo acepta la IP del GW en `443` (producción) y `8443` (prueba), y la IP de quien administra en `22`.
 * Un Caddy de borde exige el certificado de cliente del GW (mTLS).
-* Prueba y producción comparten la VM, cada una con su stack (MS04 + PostgreSQL) y sus secretos.
+* Prueba y producción comparten la VM, cada una con su stack y sus secretos.
+* La base de datos está en otra VM de la misma VPC, con una PostgreSQL por entorno (prod en `5432`, prueba en
+  `5433`). MS04 llega a ella por la IP privada y el Security Group de la BD solo acepta a la VM de MS04.
 
-Los pasos 1 a 3 se hacen una sola vez. Los comandos marcados *(VM)* van en la VM por SSH; los demás, en su PC.
+Los pasos 1 a 4 se hacen una sola vez. Los comandos marcados *(VM)* van en la VM de MS04 por SSH, los marcados
+*(VM BD)* en la VM de la base de datos, y los demás en su PC.
 
 ### 1. Borde Caddy (mTLS) *(VM)*
 Con la carpeta `certs/` que entrega el equipo del GW (`prod/` y `test/`, cada una con `servidor.crt`,
@@ -124,12 +127,47 @@ Cree `ms04-test` (**Deployment branches**: solo `develop`) y `ms04-prod` (**Requ
 | `GATEWAY_URL` | Variable | Prueba: `https://campusseguro-gw.northcentralus.cloudapp.azure.com:8443`. Producción: `https://campusseguro-gw.northcentralus.cloudapp.azure.com`. |
 | `MS04_EXTRA_ENV` | Variable (opcional) | Líneas `CLAVE=valor` extra, p. ej. `INTERNAL_ALLOWED_SERVICES=ms06` o `MS05_SOLICITUDES_PATH=...`. |
 | `LOG_LEVEL`, `DEPLOY_DIR` | Variable (opcional) | `INFO` y `~/campusseguro/ms04` por defecto. |
-| `DB_PASSWORD` | Secreto | `openssl rand -base64 24`, distinta por entorno. Solo se aplica cuando se crea la BD (primer despliegue). |
+| `DB_HOST` | Variable | IP privada de la VM de la BD (paso 4). |
+| `DB_PORT` | Variable (opcional) | `5432` en `ms04-prod` y `5433` en `ms04-test` por defecto. |
+| `DB_PASSWORD` | Secreto | `openssl rand -base64 24`, distinta por entorno. Debe ser la misma de `DB_PASSWORD_PROD` o `DB_PASSWORD_TEST` en la VM de la BD (paso 4). |
 | `GATEWAY_SERVICE_KEY` | Secreto | La que entregó el equipo del GW para ese entorno (`GW_SERVICE_KEY_MS04` del GW). |
 
 Ningún valor puede contener comillas simples (`'`).
 
-### 4. Desplegar
+### 4. VM de base de datos *(VM BD)*
+1. En AWS, una instancia EC2 `t3.micro` (Ubuntu LTS, 10 GB gp3, crédito *standard*) en la **misma VPC** que la VM
+   de MS04. Su Security Group acepta, con origen el Security Group de la VM de MS04, `5432-5433` (PostgreSQL) y
+   `22` (SSH). Nunca `0.0.0.0/0`. Para instalar la VM puede abrir `22` a *Mi IP* temporalmente.
+2. En la VM:
+   ```bash
+   curl -fsSL https://get.docker.com | sudo sh && sudo usermod -aG docker "$USER"   # una vez; salga y vuelva a entrar
+   git clone https://github.com/CampusSeguro-DOSW-2026-2/ms04-evacuation-and-check-in.git ~/campusseguro/ms04-db
+   cd ~/campusseguro/ms04-db
+   (umask 077 && printf 'IP_PRIVADA=%s\nDB_PASSWORD_PROD=%s\nDB_PASSWORD_TEST=%s\n' \
+       "$(hostname -I | awk '{print $1}')" '<DB_PASSWORD de ms04-prod>' '<DB_PASSWORD de ms04-test>' > infra/db/.env)
+   docker compose -f infra/db/docker-compose.db.yml up -d
+   docker compose -f infra/db/docker-compose.db.yml ps   # prod y test en estado healthy
+   ```
+   Los scripts de `database/` crean el esquema solo la primera vez. Un script nuevo se aplica a mano en cada
+   entorno: `docker compose -f infra/db/docker-compose.db.yml exec -T prod psql -U ms04_user -d ms04_db
+   < database/<script>.sql` (y lo mismo con `test`), después de `git pull`.
+3. Cuando todo funcione, quite la regla temporal de `22` y la IP pública de la VM (*Interfaz de red › Administrar
+   direcciones IP*). Desde entonces se entra saltando por la VM de MS04:
+   `ssh -J ubuntu@<IP pública de MS04> ubuntu@<IP privada de la BD>`.
+
+**Migración desde la BD que corría junto a MS04** (una vez por entorno, antes del primer despliegue con la BD
+separada). Las contraseñas actuales están en `~/campusseguro/ms04/<entorno>/.env` de la VM de MS04. Con prod
+(para prueba: `test`, `ms04-test-db-1` y `5433`) *(VM)*:
+```bash
+docker compose --project-directory ~/campusseguro/ms04/prod stop ms04
+docker exec ms04-prod-db-1 pg_dump -U ms04_user -Fc ms04_db \
+  | docker run --rm -i -e PGPASSWORD='<DB_PASSWORD de prod>' postgres:17.6-alpine \
+      pg_restore -h <IP privada de la BD> -p 5432 -U ms04_user -d ms04_db --clean --if-exists --no-owner
+```
+Luego despliegue (paso 5): el contenedor `db` anterior se elimina, pero su volumen (`ms04-prod_datos`) se conserva
+como respaldo hasta que lo borre con `docker volume rm`.
+
+### 5. Desplegar
 1. **Prueba:** cada merge o push a `develop` publica la imagen y la despliega en `ms04-test` (job
    **desplegar-test** en *Actions*).
 2. **Producción:** después de mezclar en `main`, **Actions › Desplegar a producción › Run workflow**, rama `main`,
@@ -138,8 +176,10 @@ Ningún valor puede contener comillas simples (`'`).
 
 `infra/deploy.sh` verifica cada despliegue dentro de la VM: `/actuator/health` responde 200 por la red
 `campus-edge` y el borde rechaza conexiones sin el certificado del GW. Si algo falla, el log del job muestra las
-últimas líneas de MS04. Operación *(VM)*: `cd ~/campusseguro/ms04/test && docker compose ps && docker compose logs
---tail=100 ms04` (nunca `down -v`: borra la BD).
+últimas líneas de MS04. Antes de desplegar comprueba que la BD acepte conexiones en `DB_HOST:DB_PORT`.
+Operación *(VM)*: `cd ~/campusseguro/ms04/test && docker compose ps && docker compose logs --tail=100 ms04`.
+Operación *(VM BD)*: `cd ~/campusseguro/ms04-db && docker compose -f infra/db/docker-compose.db.yml ps` (nunca
+`down -v`: borra las bases de datos).
 
 ## Estructura y dónde va cada feature
 
