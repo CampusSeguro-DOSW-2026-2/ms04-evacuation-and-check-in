@@ -60,11 +60,13 @@ public class GatewayClient {
      * @param ruta ruta que empieza por /api/v1/, sin datos personales porque se escribe en el log
      * @param usuarioId usuario en cuyo nombre se llama, null si es una ruta interna sin usuario
      * @param roles roles del usuario con el formato de X-User-Role, sin modificarlos; se ignora si no hay usuario
+     * @param permisos permisos del usuario con el formato de X-User-Permission, sin modificarlos; se ignora si no hay
+     *        usuario
      * @return el cuerpo JSON de la respuesta 2xx
      * @throws ApiException 503 DEPENDENCIA_NO_DISPONIBLE si la llamada falla
      */
-    public JsonNode get(String ruta, UUID usuarioId, String roles) {
-        HttpRequest.Builder solicitud = nuevaSolicitud(ruta, usuarioId, roles);
+    public JsonNode get(String ruta, UUID usuarioId, String roles, String permisos) {
+        HttpRequest.Builder solicitud = nuevaSolicitud(ruta, usuarioId, roles, permisos);
         return enviar("GET", ruta, solicitud.GET().build());
     }
 
@@ -77,14 +79,14 @@ public class GatewayClient {
      * @throws ApiException 503 DEPENDENCIA_NO_DISPONIBLE si la llamada falla
      */
     public JsonNode post(String ruta, String cuerpoJson) {
-        HttpRequest.Builder solicitud = nuevaSolicitud(ruta, null, null);
+        HttpRequest.Builder solicitud = nuevaSolicitud(ruta, null, null, null);
         return enviar("POST", ruta, solicitud
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(cuerpoJson, StandardCharsets.UTF_8))
                 .build());
     }
 
-    private HttpRequest.Builder nuevaSolicitud(String ruta, UUID usuarioId, String roles) {
+    private HttpRequest.Builder nuevaSolicitud(String ruta, UUID usuarioId, String roles, String permisos) {
         if (gatewayUrl.isEmpty()) {
             log.warn("Gateway no configurado: no se puede llamar a {}", ruta);
             throw ApiException.dependenciaNoDisponible();
@@ -105,10 +107,12 @@ public class GatewayClient {
         if (correlationId != null) {
             solicitud.header(CorrelationIds.HEADER, correlationId);
         }
-        // Si actúa en nombre de un usuario, se propaga su identidad sin modificarla (Estándares, sección 5)
-        if (usuarioId != null && roles != null) {
+        // Si actúa en nombre de un usuario, se propaga su identidad sin modificarla (Estándares, sección 5): las tres
+        // cabeceras juntas o ninguna, porque el Gateway responde 400 si falta alguna
+        if (usuarioId != null && roles != null && permisos != null) {
             solicitud.header(IdentityHeaders.USER_ID, usuarioId.toString());
             solicitud.header(IdentityHeaders.USER_ROLE, roles);
+            solicitud.header(IdentityHeaders.USER_PERMISSION, permisos);
         }
         return solicitud;
     }

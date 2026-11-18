@@ -10,7 +10,6 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Collection;
-import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -53,8 +52,8 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.Checki
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.EventoRepository;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.SolicitudAsistenciaRepository;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.RequesterIdentity;
-import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.Rol;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.PostgresTestcontainerConfig;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.IdentidadesDePrueba;
 import jakarta.persistence.EntityManager;
 
 /**
@@ -115,9 +114,8 @@ class DashboardIntegracionTest {
     @MockitoBean
     private PoblacionObjetivoClient poblacionObjetivo;
 
-    private final RequesterIdentity coordinador = new RequesterIdentity(UUID.randomUUID(),
-            EnumSet.of(Rol.COORDINADOR));
-    private final RequesterIdentity brigadista = new RequesterIdentity(BRIGADISTA, EnumSet.of(Rol.BRIGADISTA));
+    private final RequesterIdentity coordinador = IdentidadesDePrueba.identidad(UUID.randomUUID(), "COORDINADOR");
+    private final RequesterIdentity brigadista = IdentidadesDePrueba.identidad(BRIGADISTA, "BRIGADISTA");
 
     /**
      * Los nombres que entrega MS01 son "Usuario " más el inicio del id, para comprobar que se asocian a la persona

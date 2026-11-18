@@ -21,6 +21,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.IdentityHeaders;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.PostgresTestcontainerConfig;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.util.CorrelationIds;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.IdentidadesDePrueba;
 
 /**
  * La aplicación completa con su configuración real (application.yaml) sobre PostgreSQL con el esquema de database/:
@@ -56,17 +57,17 @@ class AplicacionTest {
     @Test
     void soloElHealthDeActuatorEstaExpuesto() throws Exception {
         mockMvc.perform(get("/actuator/metrics")
-                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "COORDINADOR"))
+                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "COORDINADOR").header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos("COORDINADOR")))
                 .andExpect(status().isNotFound());
     }
 
     @Test
     void swaggerNoSeExponePorDefecto() throws Exception {
         mockMvc.perform(get("/v3/api-docs")
-                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "COORDINADOR"))
+                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "COORDINADOR").header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos("COORDINADOR")))
                 .andExpect(status().isNotFound());
         mockMvc.perform(get("/swagger-ui/index.html")
-                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "COORDINADOR"))
+                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "COORDINADOR").header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos("COORDINADOR")))
                 .andExpect(status().isNotFound());
     }
 
@@ -85,7 +86,7 @@ class AplicacionTest {
     @Test
     void unaRutaInexistenteEsNoEncontradaConElErrorEstandar() throws Exception {
         mockMvc.perform(get("/api/v1/chi/no-existe")
-                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "COORDINADOR"))
+                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "COORDINADOR").header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos("COORDINADOR")))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.codigo").value("NO_ENCONTRADO"))
                 .andExpect(jsonPath("$.errores", hasSize(0)));
@@ -94,7 +95,7 @@ class AplicacionTest {
     @Test
     void nadieModificaOEliminaEventosPorLaApiDeUsuarios() throws Exception {
         mockMvc.perform(delete(BASE + "/" + UUID.randomUUID())
-                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "COORDINADOR"))
+                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "COORDINADOR").header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos("COORDINADOR")))
                 .andExpect(status().isMethodNotAllowed())
                 .andExpect(jsonPath("$.codigo").value("METODO_NO_PERMITIDO"));
     }
@@ -103,7 +104,7 @@ class AplicacionTest {
     void unTipoDeContenidoNoSoportadoEsTipoNoSoportado() throws Exception {
         mockMvc.perform(post(BASE + "/" + UUID.randomUUID() + "/checkins").contentType(MediaType.TEXT_PLAIN)
                 .content("hola")
-                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "ESTUDIANTE"))
+                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "ESTUDIANTE").header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos("ESTUDIANTE")))
                 .andExpect(status().isUnsupportedMediaType())
                 .andExpect(jsonPath("$.codigo").value("TIPO_NO_SOPORTADO"));
     }
@@ -112,7 +113,7 @@ class AplicacionTest {
     void laConfiguracionRealRechazaUnIdDeUsuarioEnElCuerpoDelCheckin() throws Exception {
         mockMvc.perform(post(BASE + "/" + UUID.randomUUID() + "/checkins").contentType(MediaType.APPLICATION_JSON)
                 .content("{\"estado\":\"EVACUATING\",\"usuario_id\":\"" + USUARIO + "\"}")
-                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "ESTUDIANTE"))
+                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "ESTUDIANTE").header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos("ESTUDIANTE")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.codigo").value("VALIDACION"))
                 .andExpect(jsonPath("$.errores[0].campo").value("usuario_id"))
@@ -122,7 +123,7 @@ class AplicacionTest {
     @Test
     void laRutaInternaDeMs06ExigeElServicioAunConIdentidadDeUsuario() throws Exception {
         mockMvc.perform(get(BASE + "/" + UUID.randomUUID() + "/checkins")
-                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "COORDINADOR"))
+                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "COORDINADOR").header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos("COORDINADOR")))
                 .andExpect(status().isUnauthorized());
         mockMvc.perform(get(BASE + "/" + UUID.randomUUID() + "/checkins")
                 .header(IdentityHeaders.SERVICE_NAME, "ms03"))

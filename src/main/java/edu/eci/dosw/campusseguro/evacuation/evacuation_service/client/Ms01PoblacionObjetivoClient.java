@@ -182,6 +182,7 @@ public class Ms01PoblacionObjetivoClient implements PoblacionObjetivoClient {
         if (requester != null) {
             request.header(IdentityHeaders.USER_ID, requester.userId().toString());
             request.header(IdentityHeaders.USER_ROLE, requester.rolesComoCabecera());
+            request.header(IdentityHeaders.USER_PERMISSION, requester.permisosComoCabecera());
         }
     }
 

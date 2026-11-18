@@ -13,7 +13,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.Instant;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -55,7 +54,6 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.EstadoEven
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.exception.GlobalExceptionHandler;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.CorrelationIdFilter;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.IdentityHeaders;
-import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.Rol;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.service.ConsultaEventoService;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.service.DashboardService;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.service.DetalleCheckinsService;
@@ -66,6 +64,7 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.service.Historial
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.service.CheckinService;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.service.ResultadosService;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.util.CorrelationIds;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.IdentidadesDePrueba;
 
 /**
  * Contrato HTTP de MS04 (api/swagger.yml): las 14 rutas, el permiso que exige cada una según la Matriz
@@ -87,11 +86,13 @@ class ContratoHttpTest {
     private static final String BASE = "/api/v1/chi/eventos";
     private static final Instant AHORA = Instant.parse("2026-11-20T15:04:12Z");
 
-    private static final Set<Rol> COMUNIDAD = EnumSet.of(Rol.ESTUDIANTE, Rol.PROFESOR, Rol.ADMINISTRATIVO,
-            Rol.BRIGADISTA, Rol.COORDINADOR, Rol.ORGANIZADOR);
-    private static final Set<Rol> DASHBOARD = EnumSet.of(Rol.BRIGADISTA, Rol.COORDINADOR, Rol.ORGANIZADOR,
-            Rol.AUDITOR);
-    private static final Set<Rol> HISTORIAL = EnumSet.of(Rol.COORDINADOR, Rol.ORGANIZADOR, Rol.AUDITOR);
+    /** Los 8 roles iniciales, con los permisos que les da la Matriz al desplegar (IdentidadesDePrueba) */
+    private static final List<String> ROLES_INICIALES = List.of("ESTUDIANTE", "PROFESOR", "ADMINISTRATIVO",
+            "BRIGADISTA", "COORDINADOR", "ORGANIZADOR", "ADMIN", "AUDITOR");
+    private static final Set<String> COMUNIDAD = Set.of("ESTUDIANTE", "PROFESOR", "ADMINISTRATIVO",
+            "BRIGADISTA", "COORDINADOR", "ORGANIZADOR");
+    private static final Set<String> DASHBOARD = Set.of("BRIGADISTA", "COORDINADOR", "ORGANIZADOR", "AUDITOR");
+    private static final Set<String> HISTORIAL = Set.of("COORDINADOR", "ORGANIZADOR", "AUDITOR");
 
     @Autowired
     private MockMvc mockMvc;
@@ -160,7 +161,7 @@ class ContratoHttpTest {
     }
 
     /** Una ruta protegida del contrato y los roles que la Matriz autoriza a usarla */
-    private record Ruta(String nombre, HttpMethod metodo, String ruta, String cuerpo, Set<Rol> permitidos) {
+    private record Ruta(String nombre, HttpMethod metodo, String ruta, String cuerpo, Set<String> permitidos) {
         @Override
         public String toString() {
             return nombre;
@@ -192,9 +193,10 @@ class ContratoHttpTest {
                 .map(Arguments::of);
     }
 
-    private MockHttpServletRequestBuilder peticion(Ruta ruta, Rol rol) {
+    private MockHttpServletRequestBuilder peticion(Ruta ruta, String rol) {
         MockHttpServletRequestBuilder builder = MockMvcRequestBuilders.request(ruta.metodo(), ruta.ruta())
-                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, rol.name());
+                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, rol)
+                .header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos(rol));
         if (ruta.cuerpo() != null) {
             builder.contentType(MediaType.APPLICATION_JSON).content(ruta.cuerpo());
         }
@@ -204,7 +206,7 @@ class ContratoHttpTest {
     @ParameterizedTest(name = "{0}")
     @MethodSource("rutasProtegidas")
     void cadaRutaProtegidaAutorizaExactamenteLosRolesDeLaMatriz(Ruta ruta) throws Exception {
-        for (Rol rol : Rol.values()) {
+        for (String rol : ROLES_INICIALES) {
             int estado = mockMvc.perform(peticion(ruta, rol)).andReturn().getResponse().getStatus();
             if (ruta.permitidos().contains(rol)) {
                 assertEquals(true, estado == 200 || estado == 201, rol + " debería poder usar " + ruta + " y dio " + estado);
@@ -230,10 +232,10 @@ class ContratoHttpTest {
     @Test
     void unRolSinPermisoNuncaLlegaAlService() throws Exception {
         mockMvc.perform(get(BASE + "/" + EVENTO + "/consolidado")
-                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "ESTUDIANTE"))
+                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "ESTUDIANTE").header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos("ESTUDIANTE")))
                 .andExpect(status().isForbidden());
         mockMvc.perform(get(BASE + "/" + EVENTO + "/historial")
-                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "BRIGADISTA"))
+                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "BRIGADISTA").header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos("BRIGADISTA")))
                 .andExpect(status().isForbidden());
 
         verifyNoInteractions(dashboardService, historialService);
@@ -242,7 +244,7 @@ class ContratoHttpTest {
     @Test
     void elAdminSinOtrosRolesNoTienePermisosEnMs04() throws Exception {
         mockMvc.perform(get(BASE + "/activos")
-                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "ADMIN"))
+                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "ADMIN").header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos("ADMIN")))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.codigo").value("PROHIBIDO"));
     }
@@ -250,14 +252,14 @@ class ContratoHttpTest {
     @Test
     void unUsuarioConVariosRolesTieneLaUnionDeSusPermisos() throws Exception {
         mockMvc.perform(get(BASE + "/" + EVENTO + "/consolidado")
-                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "ESTUDIANTE,BRIGADISTA"))
+                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "ESTUDIANTE,BRIGADISTA").header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos("ESTUDIANTE,BRIGADISTA")))
                 .andExpect(status().isOk());
     }
 
     @Test
     void elPrimerCheckinResponde201ConElContratoEnSnakeCase() throws Exception {
         mockMvc.perform(peticion(new Ruta("x", HttpMethod.POST, BASE + "/" + EVENTO + "/checkins", CHECKIN_SAFE,
-                COMUNIDAD), Rol.ESTUDIANTE))
+                COMUNIDAD), "ESTUDIANTE"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.evento_id").value(EVENTO.toString()))
                 .andExpect(jsonPath("$.estado").value("SAFE"))
@@ -277,7 +279,7 @@ class ContratoHttpTest {
     private static MockHttpServletRequestBuilder comoEstudiante(MockHttpServletRequestBuilder builder,
             String cuerpo) {
         return builder.contentType(MediaType.APPLICATION_JSON).content(cuerpo)
-                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "ESTUDIANTE");
+                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "ESTUDIANTE").header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos("ESTUDIANTE"));
     }
 
     // ------------------------------------------------------------------ validación del cuerpo y la consulta
@@ -324,7 +326,7 @@ class ContratoHttpTest {
     @Test
     void unEventoIdQueNoEsUuidEsValidacion() throws Exception {
         mockMvc.perform(get(BASE + "/no-es-uuid/consolidado")
-                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "COORDINADOR"))
+                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "COORDINADOR").header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos("COORDINADOR")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errores[0].campo").value("eventoId"));
     }
@@ -332,7 +334,7 @@ class ContratoHttpTest {
     @Test
     void laPaginacionInvalidaEsValidacionPeroElPermisoSeVerificaPrimero() throws Exception {
         mockMvc.perform(get(BASE + "/" + EVENTO + "/pendientes?page=-1&size=101")
-                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "COORDINADOR"))
+                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "COORDINADOR").header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos("COORDINADOR")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errores", hasSize(2)))
                 .andExpect(jsonPath("$.errores[0].campo").value("page"))
@@ -340,14 +342,14 @@ class ContratoHttpTest {
                 .andExpect(jsonPath("$.errores[1].campo").value("size"))
                 .andExpect(jsonPath("$.errores[1].mensaje").value("Tamaño de página no válido (1 a 100)."));
         mockMvc.perform(get(BASE + "/" + EVENTO + "/pendientes?page=-1")
-                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "ESTUDIANTE"))
+                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "ESTUDIANTE").header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos("ESTUDIANTE")))
                 .andExpect(status().isForbidden());
     }
 
     @Test
     void lasListasUsanPagina0YTamano20PorDefecto() throws Exception {
         mockMvc.perform(get(BASE + "/" + EVENTO + "/asistencia")
-                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "BRIGADISTA"))
+                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "BRIGADISTA").header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos("BRIGADISTA")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.page").value(0))
                 .andExpect(jsonPath("$.size").value(20))
@@ -359,11 +361,11 @@ class ContratoHttpTest {
     @Test
     void unEstadoInvalidoEnElFiltroEsValidacion() throws Exception {
         mockMvc.perform(get(BASE + "/" + EVENTO + "/personas?estado=OTRO")
-                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "COORDINADOR"))
+                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "COORDINADOR").header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos("COORDINADOR")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errores[0].campo").value("estado"));
         mockMvc.perform(get(BASE + "?estado=OTRO")
-                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "COORDINADOR"))
+                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "COORDINADOR").header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos("COORDINADOR")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errores[0].campo").value("estado"));
     }
@@ -373,7 +375,7 @@ class ContratoHttpTest {
     @Test
     void elConsolidadoSiempreTraeLosCuatroEstadosYLosPuntosDeEncuentro() throws Exception {
         mockMvc.perform(get(BASE + "/" + EVENTO + "/consolidado")
-                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "COORDINADOR"))
+                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "COORDINADOR").header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos("COORDINADOR")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.evento_id").value(EVENTO.toString()))
                 .andExpect(jsonPath("$.estado_evento").value("EN_EJECUCION"))
@@ -390,7 +392,7 @@ class ContratoHttpTest {
     @Test
     void losEventosActivosYLaConsultaDeEventosUsanSnakeCase() throws Exception {
         mockMvc.perform(get(BASE + "/activos")
-                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "ESTUDIANTE"))
+                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "ESTUDIANTE").header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos("ESTUDIANTE")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].evento_id").value(EVENTO.toString()))
                 .andExpect(jsonPath("$[0].checkin_habilitado").value(true))
@@ -402,7 +404,7 @@ class ContratoHttpTest {
     @Test
     void laListaDeEventosUsaLaPaginacionDeLosEstandares() throws Exception {
         mockMvc.perform(get(BASE + "?estado=EN_EJECUCION&page=0&size=10")
-                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "AUDITOR"))
+                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "AUDITOR").header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos("AUDITOR")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.contenido", hasSize(1)))
                 .andExpect(jsonPath("$.total_elementos").value(1))
@@ -495,7 +497,7 @@ class ContratoHttpTest {
                     .andExpect(jsonPath("$.mensaje").value(IdentityHeaders.MISSING_SERVICE_MESSAGE));
         }
         mockMvc.perform(get(BASE + "/" + EVENTO + "/checkins")
-                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "COORDINADOR"))
+                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "COORDINADOR").header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos("COORDINADOR")))
                 .andExpect(status().isUnauthorized());
         mockMvc.perform(get(BASE + "/" + EVENTO + "/checkins").header(IdentityHeaders.SERVICE_NAME, "ms03"))
                 .andExpect(status().isForbidden());

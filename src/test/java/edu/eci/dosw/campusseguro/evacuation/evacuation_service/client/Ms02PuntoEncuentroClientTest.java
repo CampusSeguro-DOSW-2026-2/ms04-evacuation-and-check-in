@@ -23,8 +23,8 @@ import com.sun.net.httpserver.HttpServer;
 
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.exception.ApiException;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.exception.ErrorCode;
-import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.Rol;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.RequesterIdentity;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.IdentidadesDePrueba;
 
 /**
  * Cliente de MS02 contra un servidor HTTP local que hace de Gateway
@@ -32,8 +32,7 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.Requeste
 class Ms02PuntoEncuentroClientTest {
 
     private static final UUID PUNTO = UUID.fromString("0b6f1d2e-3c4a-4b5d-8e9f-a1b2c3d4e5f6");
-    private static final RequesterIdentity USUARIO = new RequesterIdentity(
-            UUID.fromString("3f6c2a9e-8b1d-4c7a-9e2f-1a5b7c9d0e42"), Set.of(Rol.PROFESOR, Rol.BRIGADISTA));
+    private static final RequesterIdentity USUARIO = IdentidadesDePrueba.identidad(UUID.fromString("3f6c2a9e-8b1d-4c7a-9e2f-1a5b7c9d0e42"), "PROFESOR", "BRIGADISTA");
 
     private HttpServer servidor;
     private final AtomicReference<String> ruta = new AtomicReference<>();
@@ -100,6 +99,7 @@ class Ms02PuntoEncuentroClientTest {
         assertEquals("corr-123", h.getFirst("X-Correlation-ID"));
         assertEquals(USUARIO.userId().toString(), h.getFirst("X-User-Id"));
         assertEquals("BRIGADISTA,PROFESOR", h.getFirst("X-User-Role"));
+        assertEquals(USUARIO.permisosComoCabecera(), h.getFirst("X-User-Permission"));
     }
 
     @Test

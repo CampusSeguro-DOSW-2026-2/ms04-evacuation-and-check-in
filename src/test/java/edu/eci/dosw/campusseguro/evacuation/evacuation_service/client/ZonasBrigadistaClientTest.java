@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
 
-import java.util.EnumSet;
 import java.util.Set;
 import java.util.UUID;
 
@@ -18,7 +17,7 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.ZonasBriga
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.exception.ApiException;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.exception.ErrorCode;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.RequesterIdentity;
-import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.Rol;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.IdentidadesDePrueba;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -32,8 +31,7 @@ class ZonasBrigadistaClientTest {
     private static final UUID EDIFICIO = UUID.fromString("0b6f3d1a-2c4e-4f58-8a97-5d3e1b7c9a20");
     private static final UUID ESPACIO = UUID.fromString("4e9c7a15-3b2d-4f60-a8e1-7c5d9b3f1a28");
     private static final UUID PUNTO = UUID.fromString("7a1d4e2b-5c3f-4a8e-b9d0-2e6f1c4a7b35");
-    private static final RequesterIdentity IDENTIDAD = new RequesterIdentity(BRIGADISTA,
-            EnumSet.of(Rol.BRIGADISTA, Rol.ESTUDIANTE));
+    private static final RequesterIdentity IDENTIDAD = IdentidadesDePrueba.identidad(BRIGADISTA, "BRIGADISTA", "ESTUDIANTE");
 
     private final JsonMapper json = JsonMapper.builder().build();
 
@@ -45,7 +43,8 @@ class ZonasBrigadistaClientTest {
      */
     @Test
     void llamaEnNombreDelBrigadistaYLeeLasTresListas() {
-        when(gateway.get(ZonasBrigadistaClientImpl.ZONES_PATH, BRIGADISTA, "BRIGADISTA,ESTUDIANTE"))
+        when(gateway.get(ZonasBrigadistaClientImpl.ZONES_PATH, BRIGADISTA, "BRIGADISTA,ESTUDIANTE",
+                IDENTIDAD.permisosComoCabecera()))
                 .thenReturn(json.readTree("""
                         {"edificios":["%s"],"espacios":["%s"],"puntos_encuentro":["%s","%s"]}"""
                         .formatted(EDIFICIO, ESPACIO, PUNTO, PUNTO)));
@@ -62,7 +61,8 @@ class ZonasBrigadistaClientTest {
      */
     @Test
     void sinZonasDevuelveConjuntosVacios() {
-        when(gateway.get(ZonasBrigadistaClientImpl.ZONES_PATH, BRIGADISTA, "BRIGADISTA,ESTUDIANTE"))
+        when(gateway.get(ZonasBrigadistaClientImpl.ZONES_PATH, BRIGADISTA, "BRIGADISTA,ESTUDIANTE",
+                IDENTIDAD.permisosComoCabecera()))
                 .thenReturn(json.readTree("{\"edificios\":[]}"));
 
         ZonasAsignadas zonas = new ZonasBrigadistaClientImpl(gateway).zonasDe(IDENTIDAD);
@@ -77,7 +77,8 @@ class ZonasBrigadistaClientTest {
      */
     @Test
     void siMs05NoRespondeResponde503() {
-        when(gateway.get(ZonasBrigadistaClientImpl.ZONES_PATH, BRIGADISTA, "BRIGADISTA,ESTUDIANTE"))
+        when(gateway.get(ZonasBrigadistaClientImpl.ZONES_PATH, BRIGADISTA, "BRIGADISTA,ESTUDIANTE",
+                IDENTIDAD.permisosComoCabecera()))
                 .thenThrow(ApiException.dependenciaNoDisponible());
 
         ApiException error = assertThrows(ApiException.class,
@@ -91,7 +92,8 @@ class ZonasBrigadistaClientTest {
      */
     @Test
     void siMs05EntregaIdsInvalidosResponde503() {
-        when(gateway.get(ZonasBrigadistaClientImpl.ZONES_PATH, BRIGADISTA, "BRIGADISTA,ESTUDIANTE"))
+        when(gateway.get(ZonasBrigadistaClientImpl.ZONES_PATH, BRIGADISTA, "BRIGADISTA,ESTUDIANTE",
+                IDENTIDAD.permisosComoCabecera()))
                 .thenReturn(json.readTree("{\"puntos_encuentro\":[\"3\"]}"));
 
         ApiException error = assertThrows(ApiException.class,

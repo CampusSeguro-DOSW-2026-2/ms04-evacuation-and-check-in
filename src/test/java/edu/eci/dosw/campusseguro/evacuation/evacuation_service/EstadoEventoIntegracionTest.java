@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -37,6 +38,7 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.Identity
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.service.EstadoEventoService;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.service.EstadoEventoValidator;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.PostgresTestcontainerConfig;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.IdentidadesDePrueba;
 import jakarta.persistence.EntityManager;
 
 /**
@@ -107,7 +109,7 @@ class EstadoEventoIntegracionTest {
 
     private ResultActions checkin() throws Exception {
         return mockMvc.perform(post(BASE + evento + "/checkins")
-                .header(IdentityHeaders.USER_ID, ESTUDIANTE).header(IdentityHeaders.USER_ROLE, "ESTUDIANTE")
+                .header(IdentityHeaders.USER_ID, ESTUDIANTE).header(IdentityHeaders.USER_ROLE, "ESTUDIANTE").header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos("ESTUDIANTE"))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"estado\":\"EVACUATING\"}"));
     }
 
@@ -268,7 +270,7 @@ class EstadoEventoIntegracionTest {
     void elCuerpoSeValidaConLosMensajesDeF05YNoModificaNada() throws Exception {
         enviar("{\"eventoId\":\"" + evento + "\",\"nombre\":\"  \",\"estado\":\"CANCELADO\","
                 + "\"fechaInicio\":\"2026-11-20T10:00:00\",\"escenario\":{\"edificios\":[\"\"]},"
-                + "\"rolesConvocados\":[\"ESTUDIANTE\",\"ADMIN\"]}")
+                + "\"rolesConvocados\":[\"ESTUDIANTE\",\"admin\"]}")
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.codigo").value("VALIDACION"))
                 .andExpect(jsonPath("$.errores[?(@.campo=='nombre')].mensaje")
@@ -303,6 +305,37 @@ class EstadoEventoIntegracionTest {
         enviar("BORRADOR", INICIO)
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errores[0].mensaje").value(EstadoEventoValidator.FECHA_EN_BORRADOR));
+    }
+
+    /**
+     * Roles flexibles (Estándares, sección 6): un rol creado por el administrador, de hasta 30 caracteres, se puede
+     * convocar, y el evento les aplica a sus usuarios (RN-MS04-01)
+     */
+    @Test
+    void unRolNuevoSePuedeConvocarYElEventoLeAplicaASusUsuarios() throws Exception {
+        String rolNuevo = "JEFE_DE_PISO_EDIFICIO_NORTE_AB";
+        enviar(cuerpo(evento, true, "EN_EJECUCION", INICIO).replace("\"PROFESOR\"", "\"" + rolNuevo + "\""))
+                .andExpect(status().isCreated());
+
+        assertEquals(java.util.List.of("ESTUDIANTE", rolNuevo), guardado().getRolesConvocados());
+        mockMvc.perform(get(BASE + "activos")
+                .header(IdentityHeaders.USER_ID, UUID.randomUUID().toString())
+                .header(IdentityHeaders.USER_ROLE, rolNuevo)
+                .header(IdentityHeaders.USER_PERMISSION, "ms04:checkin:read_own"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].evento_id").value(evento.toString()));
+    }
+
+    @Test
+    void unRolConvocadoSinElFormatoDeRolSeRechaza() throws Exception {
+        for (String rol : new String[] { "estudiante", "E", "1ROL", "ROL-CON-GUION",
+                "JEFE_DE_PISO_EDIFICIO_NORTE_ABC" }) {
+            enviar(cuerpo(evento, true, "PROGRAMADO", INICIO).replace("\"PROFESOR\"", "\"" + rol + "\""))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errores[0].campo").value("rolesConvocados"))
+                    .andExpect(jsonPath("$.errores[0].mensaje").value(EstadoEventoValidator.ROL_NO_VALIDO));
+        }
+        assertFalse(eventos.existsById(evento));
     }
 
     @Test

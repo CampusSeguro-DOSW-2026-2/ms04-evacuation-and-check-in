@@ -61,6 +61,7 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.Evento
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.IdentityHeaders;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.service.SolicitudAsistenciaService;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.PostgresTestcontainerConfig;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.IdentidadesDePrueba;
 
 /**
  * RF-MS04-04 Generar solicitud de asistencia en MS05, de punta a punta con PostgreSQL real. MS05, MS02 y el envío a
@@ -103,7 +104,7 @@ class SolicitudAsistenciaIntegracionTest {
     void dobles() {
         when(puntosEncuentro.buscar(any(), any(), any())).thenAnswer(inv -> Optional.of(
                 new PuntoEncuentro(inv.getArgument(0), "MP-01", "Punto", true)));
-        when(ms05.enviar(any(), any(), any())).thenReturn(ResultadoEnvioMs05.creada("SOL-1"));
+        when(ms05.enviar(any(), any(), any(), any())).thenReturn(ResultadoEnvioMs05.creada("SOL-1"));
     }
 
     private Evento enEjecucion() {
@@ -126,7 +127,7 @@ class SolicitudAsistenciaIntegracionTest {
     private ResultActions reportar(UUID eventoId, String cuerpo) throws Exception {
         return mockMvc.perform(post("/api/v1/chi/eventos/{id}/checkins", eventoId)
                 .header(IdentityHeaders.USER_ID, USUARIO.toString())
-                .header(IdentityHeaders.USER_ROLE, "ESTUDIANTE")
+                .header(IdentityHeaders.USER_ROLE, "ESTUDIANTE").header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos("ESTUDIANTE"))
                 .header("X-Correlation-ID", CORRELATION_ID)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(cuerpo));
@@ -188,7 +189,8 @@ class SolicitudAsistenciaIntegracionTest {
             reportar(evento.getId(), asistencia("ESPACIO", ESPACIO)).andExpect(status().isCreated());
 
             ArgumentCaptor<SolicitudAsistencia> enviada = ArgumentCaptor.forClass(SolicitudAsistencia.class);
-            verify(ms05).enviar(enviada.capture(), eq("ESTUDIANTE"), eq(CORRELATION_ID));
+            verify(ms05).enviar(enviada.capture(), eq("ESTUDIANTE"),
+                    eq(IdentidadesDePrueba.permisos("ESTUDIANTE")), eq(CORRELATION_ID));
             assertEquals(unicaSolicitud(evento.getId()).get("id"), enviada.getValue().getId());
             assertEquals(USUARIO, enviada.getValue().getUsuarioId());
             assertEquals(ESPACIO, enviada.getValue().getUbicacionId());
@@ -197,7 +199,7 @@ class SolicitudAsistenciaIntegracionTest {
         @Test
         void conMs05DetenidoElCheckInSeRegistraYLaSolicitudQuedaPendiente() throws Exception {
             Evento evento = enEjecucion();
-            when(ms05.enviar(any(), any(), any())).thenReturn(ResultadoEnvioMs05.noDisponible("timeout"));
+            when(ms05.enviar(any(), any(), any(), any())).thenReturn(ResultadoEnvioMs05.noDisponible("timeout"));
 
             reportar(evento.getId(), asistencia("EDIFICIO", EDIFICIO))
                     .andExpect(status().isCreated())
@@ -214,7 +216,7 @@ class SolicitudAsistenciaIntegracionTest {
         @Test
         void unErrorInesperadoAlEnviarNoRechazaElCheckIn() throws Exception {
             Evento evento = enEjecucion();
-            when(ms05.enviar(any(), any(), any())).thenThrow(new IllegalStateException("fallo inesperado"));
+            when(ms05.enviar(any(), any(), any(), any())).thenThrow(new IllegalStateException("fallo inesperado"));
 
             reportar(evento.getId(), asistencia("EDIFICIO", EDIFICIO))
                     .andExpect(status().isCreated())
@@ -224,7 +226,7 @@ class SolicitudAsistenciaIntegracionTest {
         @Test
         void siMs05RechazaLaSolicitudQuedaRechazadaYElCheckInSeConserva() throws Exception {
             Evento evento = enEjecucion();
-            when(ms05.enviar(any(), any(), any())).thenReturn(ResultadoEnvioMs05.rechazada("HTTP 422"));
+            when(ms05.enviar(any(), any(), any(), any())).thenReturn(ResultadoEnvioMs05.rechazada("HTTP 422"));
 
             reportar(evento.getId(), asistencia("EDIFICIO", EDIFICIO))
                     .andExpect(status().isCreated())
@@ -246,7 +248,7 @@ class SolicitudAsistenciaIntegracionTest {
                     .andExpect(jsonPath("$.solicitud_asistencia.estado_envio").value("ENVIADA"));
 
             assertEquals(EDIFICIO, unicaSolicitud(evento.getId()).get("ubicacion_id"));
-            verify(ms05, times(1)).enviar(any(), any(), any());
+            verify(ms05, times(1)).enviar(any(), any(), any(), any());
         }
 
         @Test
@@ -259,7 +261,7 @@ class SolicitudAsistenciaIntegracionTest {
                     .andExpect(jsonPath("$.solicitud_asistencia.id").value("SOL-1"));
 
             assertEquals(1, solicitudes(evento.getId()).size());
-            verify(ms05, times(1)).enviar(any(), any(), any());
+            verify(ms05, times(1)).enviar(any(), any(), any(), any());
         }
 
         @Test
@@ -274,7 +276,7 @@ class SolicitudAsistenciaIntegracionTest {
                     .andExpect(jsonPath("$.solicitud_asistencia").value(nullValue()));
 
             assertEquals(0, solicitudes(evento.getId()).size());
-            verify(ms05, never()).enviar(any(), any(), any());
+            verify(ms05, never()).enviar(any(), any(), any(), any());
         }
 
         @Test
@@ -284,7 +286,7 @@ class SolicitudAsistenciaIntegracionTest {
             reportar(evento.getId(), "{\"estado\":\"NEEDS_ASSISTANCE\"}").andExpect(status().isBadRequest());
 
             assertEquals(0, solicitudes(evento.getId()).size());
-            verify(ms05, never()).enviar(any(), any(), any());
+            verify(ms05, never()).enviar(any(), any(), any(), any());
         }
     }
 
@@ -296,10 +298,10 @@ class SolicitudAsistenciaIntegracionTest {
         @Test
         void alRecuperarseMs05LaPendienteSeEnviaUnaSolaVezYSeGuardaSuId() throws Exception {
             Evento evento = enEjecucion();
-            when(ms05.enviar(any(), any(), any())).thenReturn(ResultadoEnvioMs05.noDisponible("caído"));
+            when(ms05.enviar(any(), any(), any(), any())).thenReturn(ResultadoEnvioMs05.noDisponible("caído"));
             reportar(evento.getId(), asistencia("EDIFICIO", EDIFICIO)).andExpect(status().isCreated());
 
-            when(ms05.enviar(any(), any(), any())).thenReturn(ResultadoEnvioMs05.creada("SOL-9"));
+            when(ms05.enviar(any(), any(), any(), any())).thenReturn(ResultadoEnvioMs05.creada("SOL-9"));
             assertEquals(1, service.reenviarPendientes());
             assertEquals(0, service.reenviarPendientes());
 
@@ -307,19 +309,19 @@ class SolicitudAsistenciaIntegracionTest {
             assertEquals("ENVIADA", fila.get("estado_envio"));
             assertEquals("SOL-9", fila.get("solicitud_ms05_id"));
             assertEquals(2, fila.get("intentos"));
-            verify(ms05, times(2)).enviar(any(), any(), any());
+            verify(ms05, times(2)).enviar(any(), any(), any(), any());
         }
 
         @Test
         void elReenvioPropagaElUsuarioPeroNoRolesYUsaUnCorrelationIdNuevo() throws Exception {
             Evento evento = enEjecucion();
-            when(ms05.enviar(any(), any(), any())).thenReturn(ResultadoEnvioMs05.noDisponible("caído"));
+            when(ms05.enviar(any(), any(), any(), any())).thenReturn(ResultadoEnvioMs05.noDisponible("caído"));
             reportar(evento.getId(), asistencia("EDIFICIO", EDIFICIO));
 
             service.reenviarPendientes();
 
             ArgumentCaptor<String> correlation = ArgumentCaptor.forClass(String.class);
-            verify(ms05).enviar(any(), isNull(), correlation.capture());
+            verify(ms05).enviar(any(), isNull(), isNull(), correlation.capture());
             assertTrue(!CORRELATION_ID.equals(correlation.getValue()));
             assertEquals(4, UUID.fromString(correlation.getValue()).version());
         }
@@ -327,7 +329,7 @@ class SolicitudAsistenciaIntegracionTest {
         @Test
         void mientrasMs05SigaCaidoLaSolicitudSiguePendienteYCuentaLosIntentos() throws Exception {
             Evento evento = enEjecucion();
-            when(ms05.enviar(any(), any(), any())).thenReturn(ResultadoEnvioMs05.noDisponible("caído"));
+            when(ms05.enviar(any(), any(), any(), any())).thenReturn(ResultadoEnvioMs05.noDisponible("caído"));
             reportar(evento.getId(), asistencia("EDIFICIO", EDIFICIO));
 
             service.reenviarPendientes();
@@ -341,23 +343,23 @@ class SolicitudAsistenciaIntegracionTest {
         @Test
         void unaSolicitudRechazadaNoSeReenvia() throws Exception {
             Evento evento = enEjecucion();
-            when(ms05.enviar(any(), any(), any())).thenReturn(ResultadoEnvioMs05.rechazada("HTTP 400"));
+            when(ms05.enviar(any(), any(), any(), any())).thenReturn(ResultadoEnvioMs05.rechazada("HTTP 400"));
             reportar(evento.getId(), asistencia("EDIFICIO", EDIFICIO));
 
             assertEquals(0, service.reenviarPendientes());
 
-            verify(ms05, times(1)).enviar(any(), any(), any());
+            verify(ms05, times(1)).enviar(any(), any(), any(), any());
             assertEquals("RECHAZADA", unicaSolicitud(evento.getId()).get("estado_envio"));
         }
 
         @Test
         void siElUsuarioCambiaDeEstadoLaPendienteSeEnviaIgual() throws Exception {
             Evento evento = enEjecucion();
-            when(ms05.enviar(any(), any(), any())).thenReturn(ResultadoEnvioMs05.noDisponible("caído"));
+            when(ms05.enviar(any(), any(), any(), any())).thenReturn(ResultadoEnvioMs05.noDisponible("caído"));
             reportar(evento.getId(), asistencia("EDIFICIO", EDIFICIO));
             reportar(evento.getId(), soloEstado("EVACUATING")).andExpect(status().isOk());
 
-            when(ms05.enviar(any(), any(), any())).thenReturn(ResultadoEnvioMs05.creada("SOL-2"));
+            when(ms05.enviar(any(), any(), any(), any())).thenReturn(ResultadoEnvioMs05.creada("SOL-2"));
             assertEquals(1, service.reenviarPendientes());
             assertEquals("ENVIADA", unicaSolicitud(evento.getId()).get("estado_envio"));
         }
@@ -387,10 +389,10 @@ class SolicitudAsistenciaIntegracionTest {
         @Test
         void unEnvioFallidoSeAuditaComoFalloConElEstadoEnQueQueda() throws Exception {
             Evento evento = enEjecucion();
-            when(ms05.enviar(any(), any(), any())).thenReturn(ResultadoEnvioMs05.noDisponible("caído"));
+            when(ms05.enviar(any(), any(), any(), any())).thenReturn(ResultadoEnvioMs05.noDisponible("caído"));
             reportar(evento.getId(), asistencia("EDIFICIO", EDIFICIO));
 
-            when(ms05.enviar(any(), any(), any())).thenReturn(ResultadoEnvioMs05.rechazada("HTTP 422"));
+            when(ms05.enviar(any(), any(), any(), any())).thenReturn(ResultadoEnvioMs05.rechazada("HTTP 422"));
             service.reenviarPendientes();
 
             List<AuditEvent> eventosAuditados = auditados(AuditAction.SOLICITUD_ASISTENCIA);
@@ -404,10 +406,10 @@ class SolicitudAsistenciaIntegracionTest {
         @Test
         void elReenvioSeAuditaComoAccionDelSistema() throws Exception {
             Evento evento = enEjecucion();
-            when(ms05.enviar(any(), any(), any())).thenReturn(ResultadoEnvioMs05.noDisponible("caído"));
+            when(ms05.enviar(any(), any(), any(), any())).thenReturn(ResultadoEnvioMs05.noDisponible("caído"));
             reportar(evento.getId(), asistencia("EDIFICIO", EDIFICIO));
 
-            when(ms05.enviar(any(), any(), any())).thenReturn(ResultadoEnvioMs05.creada("SOL-3"));
+            when(ms05.enviar(any(), any(), any(), any())).thenReturn(ResultadoEnvioMs05.creada("SOL-3"));
             service.reenviarPendientes();
 
             List<AuditEvent> eventosAuditados = auditados(AuditAction.SOLICITUD_ASISTENCIA);
@@ -437,7 +439,7 @@ class SolicitudAsistenciaIntegracionTest {
     void dosReenviosSimultaneosEnvianLaPendienteUnaSolaVez() throws Exception {
         Evento evento = enEjecucion();
         try {
-            when(ms05.enviar(any(), any(), any())).thenReturn(ResultadoEnvioMs05.noDisponible("caído"));
+            when(ms05.enviar(any(), any(), any(), any())).thenReturn(ResultadoEnvioMs05.noDisponible("caído"));
             reportar(evento.getId(), asistencia("EDIFICIO", EDIFICIO)).andExpect(status().isCreated());
             UUID solicitudId = (UUID) unicaSolicitud(evento.getId()).get("id");
 
@@ -445,7 +447,7 @@ class SolicitudAsistenciaIntegracionTest {
             CountDownLatch enMs05 = new CountDownLatch(1);
             CountDownLatch soltar = new CountDownLatch(1);
             // Solo el primer envío se queda "dentro de MS05" hasta que el segundo termine
-            when(ms05.enviar(any(), any(), anyString())).thenAnswer(inv -> {
+            when(ms05.enviar(any(), any(), any(), anyString())).thenAnswer(inv -> {
                 if (llamadas.incrementAndGet() == 1) {
                     enMs05.countDown();
                     soltar.await(10, TimeUnit.SECONDS);

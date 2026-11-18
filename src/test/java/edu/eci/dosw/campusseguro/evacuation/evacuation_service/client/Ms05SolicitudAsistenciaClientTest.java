@@ -36,6 +36,7 @@ class Ms05SolicitudAsistenciaClientTest {
     private static final UUID CHECKIN = UUID.fromString("8b2c3d4e-5f6a-4b7c-9d8e-1f2a3b4c5d6e");
     private static final UUID EVENTO = UUID.fromString("7c3d4e5f-6a7b-4c8d-8e9f-2a3b4c5d6e7f");
     private static final UUID USUARIO = UUID.fromString("3f6c2a9e-8b1d-4c7a-9e2f-1a5b7c9d0e42");
+    private static final String PERMISOS = "ms04:assistance:request,ms04:checkin:write";
     private static final UUID EDIFICIO = UUID.fromString("5d4c3b2a-1f0e-4d9c-8b7a-6f5e4d3c2b1a");
 
     private HttpServer servidor;
@@ -102,7 +103,7 @@ class Ms05SolicitudAsistenciaClientTest {
     void unaSolicitudCreadaDevuelveElIdDeMs05YLaPeticionSigueElEstandar() throws Exception {
         responder(201, "{\"id\":\"SOL-123\",\"estado\":\"REPORTADA\"}");
 
-        ResultadoEnvioMs05 resultado = cliente(2000).enviar(solicitud(), "ESTUDIANTE", "corr-1");
+        ResultadoEnvioMs05 resultado = cliente(2000).enviar(solicitud(), "ESTUDIANTE", PERMISOS, "corr-1");
 
         assertEquals(ResultadoEnvioMs05.creada("SOL-123"), resultado);
         assertEquals("POST", metodo.get());
@@ -112,13 +113,14 @@ class Ms05SolicitudAsistenciaClientTest {
         assertEquals("corr-1", h.getFirst("X-Correlation-ID"));
         assertEquals(USUARIO.toString(), h.getFirst("X-User-Id"));
         assertEquals("ESTUDIANTE", h.getFirst("X-User-Role"));
+        assertEquals(PERMISOS, h.getFirst("X-User-Permission"));
     }
 
     @Test
     void elCuerpoLlevaLaLlaveDeIdempotenciaElEventoElUsuarioElCheckInYLaUbicacion() throws Exception {
         responder(201, "{\"id\":\"SOL-123\"}");
 
-        cliente(2000).enviar(solicitud(), "ESTUDIANTE", "corr-1");
+        cliente(2000).enviar(solicitud(), "ESTUDIANTE", PERMISOS, "corr-1");
 
         JsonNode cuerpo = JsonMapper.builder().build().readTree(cuerpoRecibido.get());
         assertEquals(SOLICITUD.toString(), cuerpo.get("solicitudId").asString());
@@ -134,7 +136,7 @@ class Ms05SolicitudAsistenciaClientTest {
     void elCuerpoViajaConContentLengthYNoEnBloques() throws Exception {
         responder(201, "{\"id\":\"SOL-123\"}");
 
-        cliente(2000).enviar(solicitud(), "ESTUDIANTE", "corr-1");
+        cliente(2000).enviar(solicitud(), "ESTUDIANTE", PERMISOS, "corr-1");
 
         Headers h = cabeceras.get();
         assertNull(h.getFirst("Transfer-Encoding"));
@@ -143,28 +145,38 @@ class Ms05SolicitudAsistenciaClientTest {
         assertEquals("application/json", h.getFirst("Content-Type"));
     }
 
+    /**
+     * En el reenvío periódico no hay roles ni permisos: no se propaga identidad, porque el Gateway responde 400 si
+     * llega X-User-Id sin X-User-Role y X-User-Permission (RF-GW-08). El usuario sigue yendo en el cuerpo
+     */
     @Test
-    void sinRolesConocidosNoEnviaXUserRole() throws Exception {
-        responder(200, "{\"id\":\"SOL-123\"}");
+    void sinRolesNiPermisosNoPropagaIdentidad() throws Exception {
+        for (String[] caso : new String[][] { { null, null }, { "ESTUDIANTE", null }, { null, PERMISOS },
+                { " ", PERMISOS } }) {
+            responder(200, "{\"id\":\"SOL-123\"}");
 
-        cliente(2000).enviar(solicitud(), null, "corr-1");
+            assertEquals(Tipo.CREADA, cliente(2000).enviar(solicitud(), caso[0], caso[1], "corr-1").tipo());
 
-        assertNull(cabeceras.get().getFirst("X-User-Role"));
-        assertEquals(USUARIO.toString(), cabeceras.get().getFirst("X-User-Id"));
+            assertNull(cabeceras.get().getFirst("X-User-Id"));
+            assertNull(cabeceras.get().getFirst("X-User-Role"));
+            assertNull(cabeceras.get().getFirst("X-User-Permission"));
+            assertEquals(USUARIO.toString(), JsonMapper.builder().build().readTree(cuerpoRecibido.get())
+                    .get("usuarioId").asString());
+        }
     }
 
     @Test
     void unIdNumericoDeMs05SeGuardaComoTexto() throws Exception {
         responder(201, "{\"id\":42}");
 
-        assertEquals(ResultadoEnvioMs05.creada("42"), cliente(2000).enviar(solicitud(), "ESTUDIANTE", "c"));
+        assertEquals(ResultadoEnvioMs05.creada("42"), cliente(2000).enviar(solicitud(), "ESTUDIANTE", PERMISOS, "c"));
     }
 
     @Test
     void datosInvalidosEnMs05SonRechazada() throws Exception {
         for (int codigo : new int[] { 400, 422 }) {
             responder(codigo, "{\"codigo\":\"VALIDACION\",\"mensaje\":\"detalle interno\"}");
-            ResultadoEnvioMs05 resultado = cliente(2000).enviar(solicitud(), "ESTUDIANTE", "c");
+            ResultadoEnvioMs05 resultado = cliente(2000).enviar(solicitud(), "ESTUDIANTE", PERMISOS, "c");
             assertEquals(Tipo.RECHAZADA, resultado.tipo());
             assertNull(resultado.solicitudMs05Id());
         }
@@ -174,17 +186,17 @@ class Ms05SolicitudAsistenciaClientTest {
     void cualquierOtraRespuestaEsNoDisponible() throws Exception {
         for (int codigo : new int[] { 500, 502, 503, 404, 401, 403, 409 }) {
             responder(codigo, "{\"mensaje\":\"detalle interno\"}");
-            assertEquals(Tipo.NO_DISPONIBLE, cliente(2000).enviar(solicitud(), "ESTUDIANTE", "c").tipo());
+            assertEquals(Tipo.NO_DISPONIBLE, cliente(2000).enviar(solicitud(), "ESTUDIANTE", PERMISOS, "c").tipo());
         }
     }
 
     @Test
     void unaRespuestaExitosaSinIdEsNoDisponible() throws Exception {
         responder(201, "{\"estado\":\"REPORTADA\"}");
-        assertEquals(Tipo.NO_DISPONIBLE, cliente(2000).enviar(solicitud(), "ESTUDIANTE", "c").tipo());
+        assertEquals(Tipo.NO_DISPONIBLE, cliente(2000).enviar(solicitud(), "ESTUDIANTE", PERMISOS, "c").tipo());
 
         responder(201, null);
-        assertEquals(Tipo.NO_DISPONIBLE, cliente(2000).enviar(solicitud(), "ESTUDIANTE", "c").tipo());
+        assertEquals(Tipo.NO_DISPONIBLE, cliente(2000).enviar(solicitud(), "ESTUDIANTE", PERMISOS, "c").tipo());
     }
 
     @Test
@@ -192,14 +204,14 @@ class Ms05SolicitudAsistenciaClientTest {
         responder(201, "{\"id\":\"SOL-123\"}");
         demoraMs = 1500;
 
-        assertEquals(Tipo.NO_DISPONIBLE, cliente(300).enviar(solicitud(), "ESTUDIANTE", "c").tipo());
+        assertEquals(Tipo.NO_DISPONIBLE, cliente(300).enviar(solicitud(), "ESTUDIANTE", PERMISOS, "c").tipo());
     }
 
     @Test
     void sinLaUrlDelGatewayEsNoDisponible() throws Exception {
         Ms05SolicitudAsistenciaClient sinUrl = new Ms05SolicitudAsistenciaClient("", "clave", 2000, RUTA);
 
-        assertEquals(Tipo.NO_DISPONIBLE, sinUrl.enviar(solicitud(), "ESTUDIANTE", "c").tipo());
+        assertEquals(Tipo.NO_DISPONIBLE, sinUrl.enviar(solicitud(), "ESTUDIANTE", PERMISOS, "c").tipo());
     }
 
     @Test
@@ -207,6 +219,6 @@ class Ms05SolicitudAsistenciaClientTest {
         Ms05SolicitudAsistenciaClient cliente = cliente(2000);
         servidor.stop(0);
 
-        assertEquals(Tipo.NO_DISPONIBLE, cliente.enviar(solicitud(), "ESTUDIANTE", "c").tipo());
+        assertEquals(Tipo.NO_DISPONIBLE, cliente.enviar(solicitud(), "ESTUDIANTE", PERMISOS, "c").tipo());
     }
 }

@@ -54,9 +54,9 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.exception.ApiExce
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.EventoRepository;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.IdentityHeaders;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.RequesterIdentity;
-import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.Rol;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.service.CheckinService;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.PostgresTestcontainerConfig;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.IdentidadesDePrueba;
 
 /**
  * RF-MS04-02 Registrar check-in y RF-MS04-03 Mantener y actualizar el estado vigente, de punta a punta con
@@ -116,7 +116,7 @@ class CheckinIntegracionTest {
     private ResultActions reportar(UUID eventoId, String roles, String cuerpo) throws Exception {
         return mockMvc.perform(post("/api/v1/chi/eventos/{id}/checkins", eventoId)
                 .header(IdentityHeaders.USER_ID, USUARIO.toString())
-                .header(IdentityHeaders.USER_ROLE, roles)
+                .header(IdentityHeaders.USER_ROLE, roles).header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos(roles))
                 .header("X-Correlation-ID", CORRELATION_ID)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(cuerpo));
@@ -499,7 +499,7 @@ class CheckinIntegracionTest {
     @Test
     void reportesSimultaneosDelMismoEstadoDejanUnSoloCheckIn() throws Exception {
         Evento evento = enEjecucion();
-        RequesterIdentity usuario = new RequesterIdentity(USUARIO, Set.of(Rol.ESTUDIANTE));
+        RequesterIdentity usuario = IdentidadesDePrueba.identidad(USUARIO, "ESTUDIANTE");
         CheckinRequest request = new CheckinRequest(EstadoCheckin.SAFE, PUNTO_A, null);
         int hilos = 20;
         ExecutorService pool = Executors.newFixedThreadPool(hilos);

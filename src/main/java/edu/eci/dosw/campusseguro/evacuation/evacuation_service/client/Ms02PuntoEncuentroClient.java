@@ -82,6 +82,7 @@ public class Ms02PuntoEncuentroClient implements PuntoEncuentroClient {
                         }
                         headers.set(IdentityHeaders.USER_ID, requester.userId().toString());
                         headers.set(IdentityHeaders.USER_ROLE, requester.rolesComoCabecera());
+                        headers.set(IdentityHeaders.USER_PERMISSION, requester.permisosComoCabecera());
                     })
                     .exchange((request, response) -> {
                         int status = response.getStatusCode().value();

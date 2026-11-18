@@ -94,7 +94,8 @@ public class SolicitudAsistenciaService {
      */
     public EnvioSolicitud enviar(UUID solicitudId, RequesterIdentity requester, String correlationId) {
         String rolesUsuario = requester == null ? null : requester.rolesComoCabecera();
-        EnvioSolicitud envio = intentarEnvio(solicitudId, rolesUsuario, correlationId);
+        String permisosUsuario = requester == null ? null : requester.permisosComoCabecera();
+        EnvioSolicitud envio = intentarEnvio(solicitudId, rolesUsuario, permisosUsuario, correlationId);
         if (envio.resultado() != null) {
             auditar(envio, requester, correlationId);
         }
@@ -114,14 +115,15 @@ public class SolicitudAsistenciaService {
         }
     }
 
-    private EnvioSolicitud intentarEnvio(UUID solicitudId, String rolesUsuario, String correlationId) {
+    private EnvioSolicitud intentarEnvio(UUID solicitudId, String rolesUsuario, String permisosUsuario,
+            String correlationId) {
         return transaccion.execute(status -> {
             Optional<SolicitudAsistencia> pendiente = solicitudes.tomarPendiente(solicitudId);
             if (pendiente.isEmpty()) {
                 return new EnvioSolicitud(solicitudes.findById(solicitudId).orElse(null), null);
             }
             SolicitudAsistencia solicitud = pendiente.get();
-            ResultadoEnvioMs05 resultado = ms05.enviar(solicitud, rolesUsuario, correlationId);
+            ResultadoEnvioMs05 resultado = ms05.enviar(solicitud, rolesUsuario, permisosUsuario, correlationId);
             solicitud.setIntentos(solicitud.getIntentos() + 1);
             solicitud.setUltimoIntentoEn(clock.instant());
             switch (resultado.tipo()) {

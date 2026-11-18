@@ -26,8 +26,8 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.Unauthen
  * - Rutas internas de MS06 (RN-MS04-23): se autorizan por el servicio que llama (X-Service-Name), no por la
  *   Matriz Rol-Permiso. Se identifican por método y ruta porque {@code /{eventoId}/checkins} tiene un POST
  *   protegido (usuarios) y un GET interno (MS06)
- * - Todo lo demás: exige la identidad de las cabeceras X-User-Id y X-User-Role. La autorización por permiso
- *   (403) la decide cada controller con la Matriz
+ * - Todo lo demás: exige la identidad de las cabeceras X-User-Id, X-User-Role y X-User-Permission. La
+ *   autorización por permiso (403) la decide cada controller con los permisos de X-User-Permission
  */
 @Configuration
 @EnableWebSecurity

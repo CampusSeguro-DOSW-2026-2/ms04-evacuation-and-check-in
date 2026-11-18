@@ -19,7 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.RequesterIdentity;
-import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.Rol;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.IdentidadesDePrueba;
 
 class AuditRecorderTest {
 
@@ -45,7 +45,7 @@ class AuditRecorderTest {
 
     @Test
     void recordAsLlevaLaIdentidadDelUsuarioConSusRolesOrdenados() {
-        RequesterIdentity usuario = new RequesterIdentity(USUARIO, Set.of(Rol.ESTUDIANTE, Rol.BRIGADISTA));
+        RequesterIdentity usuario = IdentidadesDePrueba.identidad(USUARIO, "ESTUDIANTE", "BRIGADISTA");
 
         auditor.recordAs(AuditAction.REGISTRO_CHECKIN, AuditResult.EXITO, usuario, "evento:" + EVENTO, null,
                 CORRELATION);
@@ -55,6 +55,7 @@ class AuditRecorderTest {
         assertEquals(AuditResult.EXITO, evento.resultado());
         assertEquals(USUARIO, evento.usuarioId());
         assertEquals("BRIGADISTA,ESTUDIANTE", evento.usuarioRoles());
+        assertEquals(IdentidadesDePrueba.permisos("BRIGADISTA,ESTUDIANTE"), evento.usuarioPermisos());
         assertEquals("evento:" + EVENTO, evento.recursoAfectado());
         assertEquals(CORRELATION, evento.correlationId());
         assertEquals(AHORA, evento.fecha());
@@ -91,11 +92,11 @@ class AuditRecorderTest {
     @Test
     void elEventoExigeAccionResultadoYFecha() {
         org.junit.jupiter.api.Assertions.assertThrows(NullPointerException.class,
-                () -> new AuditEvent(null, AuditResult.EXITO, null, null, null, null, AHORA, null));
+                () -> new AuditEvent(null, AuditResult.EXITO, null, null, null, null, null, AHORA, null));
         org.junit.jupiter.api.Assertions.assertThrows(NullPointerException.class,
-                () -> new AuditEvent(AuditAction.REGISTRO_CHECKIN, null, null, null, null, null, AHORA, null));
+                () -> new AuditEvent(AuditAction.REGISTRO_CHECKIN, null, null, null, null, null, null, AHORA, null));
         org.junit.jupiter.api.Assertions.assertThrows(NullPointerException.class,
                 () -> new AuditEvent(AuditAction.REGISTRO_CHECKIN, AuditResult.EXITO, null, null, null, null, null,
-                        null));
+                        null, null));
     }
 }

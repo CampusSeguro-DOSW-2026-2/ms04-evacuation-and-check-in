@@ -25,6 +25,7 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.config.SecurityCo
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.config.WebMvcConfig;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.exception.GlobalExceptionHandler;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.util.CorrelationIds;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.IdentidadesDePrueba;
 
 /**
  * Las dos cadenas de seguridad con los filtros reales: rutas protegidas por cabeceras de identidad y rutas
@@ -58,29 +59,52 @@ class SeguridadHttpTest {
     @Test
     void unaRutaProtegidaConCabecerasValidasPasa() throws Exception {
         mockMvc.perform(get("/api/v1/chi/eventos/activos")
-                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "ESTUDIANTE"))
+                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "ESTUDIANTE").header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos("ESTUDIANTE")))
                 .andExpect(status().isOk());
     }
 
     @Test
-    void unRolInvalidoEnLaCabeceraEsNoAutenticado() throws Exception {
+    void unRolConFormatoInvalidoEnLaCabeceraEsNoAutenticado() throws Exception {
         mockMvc.perform(get("/api/v1/chi/eventos/activos")
-                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "SUPERUSUARIO"))
+                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "superusuario")
+                .header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos("ESTUDIANTE")))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.mensaje").value(IdentityHeaders.INVALID_ROLE_MESSAGE));
     }
 
     @Test
+    void sinXUserPermissionEsNoAutenticado() throws Exception {
+        mockMvc.perform(get("/api/v1/chi/eventos/activos")
+                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "ESTUDIANTE"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.codigo").value("NO_AUTENTICADO"))
+                .andExpect(jsonPath("$.mensaje").value(IdentityHeaders.MISSING_MESSAGE));
+    }
+
+    /** Los roles no son un conjunto fijo: un rol nuevo autoriza solo con los permisos que traiga */
+    @Test
+    void unRolNuevoAutorizaSoloConSusPermisos() throws Exception {
+        mockMvc.perform(get("/api/v1/chi/eventos/solo-dashboard")
+                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "JEFE_DE_PISO")
+                .header(IdentityHeaders.USER_PERMISSION, "ms04:dashboard:read"))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/chi/eventos/solo-dashboard")
+                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "COORDINADOR")
+                .header(IdentityHeaders.USER_PERMISSION, "ms04:checkin:write"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     void sinElPermisoElControllerResponde403() throws Exception {
         mockMvc.perform(get("/api/v1/chi/eventos/solo-dashboard")
-                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "ESTUDIANTE"))
+                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "ESTUDIANTE").header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos("ESTUDIANTE")))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.codigo").value("PROHIBIDO"));
         mockMvc.perform(get("/api/v1/chi/eventos/solo-dashboard")
-                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "ADMIN"))
+                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "ADMIN").header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos("ADMIN")))
                 .andExpect(status().isForbidden());
         mockMvc.perform(get("/api/v1/chi/eventos/solo-dashboard")
-                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "AUDITOR"))
+                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "AUDITOR").header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos("AUDITOR")))
                 .andExpect(status().isOk());
     }
 
@@ -95,7 +119,7 @@ class SeguridadHttpTest {
     @Test
     void laRutaInternaIgnoraLaIdentidadDeUsuario() throws Exception {
         mockMvc.perform(put("/api/v1/chi/eventos/" + EVENTO + "/estado")
-                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "COORDINADOR"))
+                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "COORDINADOR").header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos("COORDINADOR")))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -128,7 +152,7 @@ class SeguridadHttpTest {
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.mensaje").value(IdentityHeaders.MISSING_MESSAGE));
         mockMvc.perform(post("/api/v1/chi/eventos/" + EVENTO + "/checkins")
-                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "ESTUDIANTE"))
+                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "ESTUDIANTE").header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos("ESTUDIANTE")))
                 .andExpect(status().isOk());
     }
 

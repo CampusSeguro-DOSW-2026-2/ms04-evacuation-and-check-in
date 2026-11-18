@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.time.Instant;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.UUID;
 
@@ -29,8 +28,8 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.Checki
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.EventoRepository;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.SolicitudAsistenciaRepository;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.RequesterIdentity;
-import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.Rol;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.PostgresTestcontainerConfig;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.IdentidadesDePrueba;
 import jakarta.persistence.EntityManager;
 
 /**
@@ -125,7 +124,7 @@ class EstadoPropioIntegracionTest {
      * @return la identidad del solicitante
      */
     private RequesterIdentity estudiante(UUID usuario) {
-        return new RequesterIdentity(usuario, EnumSet.of(Rol.ESTUDIANTE));
+        return IdentidadesDePrueba.identidad(usuario, "ESTUDIANTE");
     }
 
     /**

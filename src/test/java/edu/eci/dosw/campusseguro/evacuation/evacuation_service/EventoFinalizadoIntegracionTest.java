@@ -43,6 +43,7 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.audit.AuditRecorder;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.IdentityHeaders;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.PostgresTestcontainerConfig;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.IdentidadesDePrueba;
 
 /**
  * RF-MS04-09 Conservar eventos finalizados, de punta a punta con PostgreSQL real: tras el cierre que informa MS06
@@ -162,7 +163,7 @@ class EventoFinalizadoIntegracionTest {
      */
     private ResultActions historial(String rol, String consulta) throws Exception {
         return mockMvc.perform(get(BASE + evento + "/historial" + consulta)
-                .header(IdentityHeaders.USER_ID, COORDINADOR).header(IdentityHeaders.USER_ROLE, rol));
+                .header(IdentityHeaders.USER_ID, COORDINADOR).header(IdentityHeaders.USER_ROLE, rol).header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos(rol)));
     }
 
     /**
@@ -287,7 +288,7 @@ class EventoFinalizadoIntegracionTest {
         String filasAntes = filas("checkins", "numero");
 
         mockMvc.perform(post(BASE + evento + "/checkins").header(IdentityHeaders.USER_ID, ESTUDIANTE)
-                .header(IdentityHeaders.USER_ROLE, "ESTUDIANTE").contentType(MediaType.APPLICATION_JSON)
+                .header(IdentityHeaders.USER_ROLE, "ESTUDIANTE").header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos("ESTUDIANTE")).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"estado\":\"EVACUATING\"}"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.codigo").value("CONFLICTO"));
@@ -389,7 +390,7 @@ class EventoFinalizadoIntegracionTest {
         historial("COORDINADOR", "").andExpect(status().isOk()).andExpect(jsonPath("$.total_elementos").value(0))
                 .andExpect(jsonPath("$.total_paginas").value(0));
         mockMvc.perform(get(BASE + UUID.randomUUID() + "/historial").header(IdentityHeaders.USER_ID, COORDINADOR)
-                .header(IdentityHeaders.USER_ROLE, "COORDINADOR"))
+                .header(IdentityHeaders.USER_ROLE, "COORDINADOR").header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos("COORDINADOR")))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.codigo").value("NO_ENCONTRADO"));
     }

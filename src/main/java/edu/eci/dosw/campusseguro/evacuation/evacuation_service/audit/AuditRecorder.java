@@ -41,8 +41,8 @@ public class AuditRecorder {
      */
     public void recordAs(AuditAction action, AuditResult result, RequesterIdentity requester, String resource,
             String detail, String correlationId) {
-        publish(new AuditEvent(action, result, requester.userId(), requester.rolesComoCabecera(), detail,
-                correlationId, clock.instant(), resource));
+        publish(new AuditEvent(action, result, requester.userId(), requester.rolesComoCabecera(),
+                requester.permisosComoCabecera(), detail, correlationId, clock.instant(), resource));
     }
 
     /**
@@ -56,7 +56,8 @@ public class AuditRecorder {
      */
     public void recordSystem(AuditAction action, AuditResult result, String resource, String detail,
             String correlationId) {
-        publish(new AuditEvent(action, result, null, null, detail, correlationId, clock.instant(), resource));
+        publish(new AuditEvent(action, result, null, null, null, detail, correlationId, clock.instant(),
+                resource));
     }
 
     /**

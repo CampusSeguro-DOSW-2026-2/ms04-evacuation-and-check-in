@@ -39,8 +39,8 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.Checki
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.CheckinRepository.ConteoPorEstadoYPunto;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.EventoRepository;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.SolicitudAsistenciaRepository;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.Permiso;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.RequesterIdentity;
-import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.Rol;
 
 /**
  * Dashboard del evento: RF-MS04-06 Consolidar el estado del evento (Jira KAIR-577, historias KAIR-596 y KAIR-597),
@@ -169,8 +169,9 @@ public class DashboardService {
     }
 
     /**
-     * Alcance de la consulta según los roles del solicitante: quien solo tiene el rol BRIGADISTA ve únicamente sus
-     * zonas, que se piden a MS05; los demás roles con {@code ms04:dashboard:read} ven todo el evento
+     * Alcance de la consulta según los permisos del solicitante: quien tiene {@code ms04:dashboard:read} sin
+     * {@code ms04:history:read} (el brigadista en la asignación inicial) ve únicamente sus zonas, que se piden a MS05;
+     * quien tiene ambos ve todo el evento
      *
      * @param requester solicitante con {@code ms04:dashboard:read}
      * @return el alcance de la consulta
@@ -184,16 +185,16 @@ public class DashboardService {
     }
 
     /**
-     * Indica si el solicitante tiene el rol BRIGADISTA y ninguno de los roles que ven todo el evento
+     * Indica si la consulta se limita a las zonas del solicitante (RN-MS04-14, MR-03). Se decide por permisos y no
+     * por el nombre del rol, porque los roles ya no son un conjunto fijo (MR-07): con la asignación inicial, solo el
+     * BRIGADISTA tiene {@code ms04:dashboard:read} sin {@code ms04:history:read}; COORDINADOR, ORGANIZADOR y AUDITOR
+     * tienen ambos y ven todo el evento
      *
      * @param requester solicitante con {@code ms04:dashboard:read}
      * @return true si su consulta se limita a lo que le muestra el BRIGADISTA (RN-MS04-14)
      */
     private boolean esSoloBrigadista(RequesterIdentity requester) {
-        return requester.tieneRol(Rol.BRIGADISTA)
-                && !requester.tieneRol(Rol.COORDINADOR)
-                && !requester.tieneRol(Rol.ORGANIZADOR)
-                && !requester.tieneRol(Rol.AUDITOR);
+        return !requester.tienePermiso(Permiso.HISTORY_READ);
     }
 
     /**
