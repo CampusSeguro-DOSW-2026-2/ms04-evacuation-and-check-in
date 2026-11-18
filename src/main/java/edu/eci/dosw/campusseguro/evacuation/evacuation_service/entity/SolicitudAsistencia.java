@@ -55,6 +55,14 @@ public class SolicitudAsistencia {
     @Column(name = "ultimo_intento_en")
     private Instant ultimoIntentoEn;
 
+    /** Roles del usuario cuando hizo el check-in (formato de X-User-Role), para reenviar la solicitud en su nombre */
+    @Column(name = "roles_solicitante", columnDefinition = "TEXT")
+    private String rolesSolicitante;
+
+    /** Permisos del usuario cuando hizo el check-in (formato de X-User-Permission), para el reenvío */
+    @Column(name = "permisos_solicitante", columnDefinition = "TEXT")
+    private String permisosSolicitante;
+
     @Column(name = "reportada_en", nullable = false, updatable = false)
     private Instant reportadaEn;
 
@@ -161,6 +169,26 @@ public class SolicitudAsistencia {
 
     public void setUltimoIntentoEn(Instant ultimoIntentoEn) {
         this.ultimoIntentoEn = ultimoIntentoEn;
+    }
+
+    public String getRolesSolicitante() {
+        return rolesSolicitante;
+    }
+
+    public String getPermisosSolicitante() {
+        return permisosSolicitante;
+    }
+
+    /**
+     * Guarda la identidad del usuario que hizo el check-in. MS05 registra la solicitud a nombre de ese usuario y la
+     * autoriza con sus permisos; el reenvío periódico no tiene petición de usuario y usa estos datos
+     *
+     * @param roles roles con el formato de X-User-Role
+     * @param permisos permisos con el formato de X-User-Permission
+     */
+    public void setIdentidadSolicitante(String roles, String permisos) {
+        this.rolesSolicitante = roles;
+        this.permisosSolicitante = permisos;
     }
 
     public Instant getReportadaEn() {

@@ -123,7 +123,10 @@ public class SolicitudAsistenciaService {
                 return new EnvioSolicitud(solicitudes.findById(solicitudId).orElse(null), null);
             }
             SolicitudAsistencia solicitud = pendiente.get();
-            ResultadoEnvioMs05 resultado = ms05.enviar(solicitud, rolesUsuario, permisosUsuario, correlationId);
+            // En el reenvío periódico no hay usuario en la petición: se usa la identidad guardada con la solicitud
+            String roles = rolesUsuario != null ? rolesUsuario : solicitud.getRolesSolicitante();
+            String permisos = permisosUsuario != null ? permisosUsuario : solicitud.getPermisosSolicitante();
+            ResultadoEnvioMs05 resultado = ms05.enviar(solicitud, roles, permisos, correlationId);
             solicitud.setIntentos(solicitud.getIntentos() + 1);
             solicitud.setUltimoIntentoEn(clock.instant());
             switch (resultado.tipo()) {
@@ -159,7 +162,7 @@ public class SolicitudAsistenciaService {
     /**
      * Reenvía a MS05 las solicitudes PENDIENTE_ENVIO, de la más antigua a la más reciente, sin duplicarlas: cada una
      * se toma con bloqueo antes de enviarla y su id viaja como llave de idempotencia (RN-MS04-12). No hay usuario en
-     * la petición, así que se propaga solo X-User-Id (el de la solicitud) y cada envío lleva un Correlation ID nuevo.
+     * la petición, así que se propaga la identidad que se guardó con la solicitud y cada envío lleva un Correlation ID nuevo.
      * Una falla con una solicitud no detiene las demás
      *
      * @return cuántas solicitudes quedaron ENVIADA

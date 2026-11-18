@@ -60,7 +60,6 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.Evento
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.SolicitudAsistenciaRepository;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.CorrelationIdFilter;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.IdentityHeaders;
-import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.RequesterIdentity;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.service.DashboardService;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.util.CorrelationIds;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.IdentidadesDePrueba;
