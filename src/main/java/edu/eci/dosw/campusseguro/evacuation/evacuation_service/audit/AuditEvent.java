@@ -8,6 +8,7 @@ import java.util.UUID;
  * Evento de auditoría que MS04 envía a MS08 (Estándares de Integración, sección 12). No lleva datos personales
  * distintos de los ids
  *
+ * @param id identificador del evento de auditoría, generado por MS04 (MS08 es idempotente por id)
  * @param accion acción realizada
  * @param resultado EXITO o FALLO
  * @param usuarioId usuario que ejecuta la acción; null si no hay usuario (p. ej. el cambio lo informa MS06)
@@ -19,8 +20,10 @@ import java.util.UUID;
  * @param fecha fecha y hora de la acción
  * @param recursoAfectado {@code <tipo>:<id>}, p. ej. {@code checkin:9a1b...} o {@code evento:7c1d...}; null solo si
  *        no hay un recurso identificable
+ * @param contexto evento de MS06 al que pertenece la acción y atributos para los indicadores de MS08
  */
 public record AuditEvent(
+        UUID id,
         AuditAction accion,
         AuditResult resultado,
         UUID usuarioId,
@@ -29,14 +32,17 @@ public record AuditEvent(
         String detalle,
         String correlationId,
         Instant fecha,
-        String recursoAfectado) {
+        String recursoAfectado,
+        AuditContext contexto) {
 
     /**
      * Exige los campos obligatorios
      */
     public AuditEvent {
+        Objects.requireNonNull(id, "id");
         Objects.requireNonNull(accion, "accion");
         Objects.requireNonNull(resultado, "resultado");
         Objects.requireNonNull(fecha, "fecha");
+        contexto = contexto == null ? AuditContext.NINGUNO : contexto;
     }
 }

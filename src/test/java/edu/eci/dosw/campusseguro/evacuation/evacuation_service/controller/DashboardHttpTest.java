@@ -244,7 +244,7 @@ class DashboardHttpTest {
     @ValueSource(strings = { "COORDINADOR", "ORGANIZADOR", "AUDITOR", "BRIGADISTA", "BRIGADISTA,COORDINADOR" })
     void losRolesConElPermisoPuedenConsolidar(String rol) throws Exception {
         when(eventos.findById(EVENTO)).thenReturn(Optional.of(evento(EstadoEvento.EN_EJECUCION)));
-        when(zonasBrigadista.zonasDe(any())).thenReturn(new ZonasAsignadas(NADA, NADA, NADA));
+        when(zonasBrigadista.zonasDe(any(), any())).thenReturn(new ZonasAsignadas(NADA, NADA, NADA));
         when(checkins.contarVigentes(EVENTO, false, NADA, NADA, NADA)).thenReturn(List.of());
         when(checkins.contarVigentes(EVENTO, true, NADA, NADA, NADA)).thenReturn(List.of());
 
@@ -309,7 +309,7 @@ class DashboardHttpTest {
     @Test
     void consolidadoDelBrigadistaSinZonasDeMs05Responde503() throws Exception {
         when(eventos.findById(EVENTO)).thenReturn(Optional.of(evento(EstadoEvento.EN_EJECUCION)));
-        when(zonasBrigadista.zonasDe(any())).thenThrow(ApiException.dependenciaNoDisponible());
+        when(zonasBrigadista.zonasDe(any(), any())).thenThrow(ApiException.dependenciaNoDisponible());
 
         mockMvc.perform(como(BASE + "/consolidado", "BRIGADISTA"))
                 .andExpect(status().isServiceUnavailable())
@@ -329,7 +329,7 @@ class DashboardHttpTest {
     void consolidadoDelBrigadistaUsaSusZonasYSuIdentidadDeLasCabeceras() throws Exception {
         UUID edificio = UUID.fromString("0b6f3d1a-2c4e-4f58-8a97-5d3e1b7c9a20");
         when(eventos.findById(EVENTO)).thenReturn(Optional.of(evento(EstadoEvento.EN_EJECUCION)));
-        when(zonasBrigadista.zonasDe(any())).thenReturn(new ZonasAsignadas(Set.of(edificio), NADA, Set.of(PUNTO_A)));
+        when(zonasBrigadista.zonasDe(any(), any())).thenReturn(new ZonasAsignadas(Set.of(edificio), NADA, Set.of(PUNTO_A)));
         when(checkins.contarVigentes(EVENTO, true, Set.of(PUNTO_A), Set.of(edificio), NADA))
                 .thenReturn(List.of(new Fila("SAFE", PUNTO_A, 6), new Fila("NEEDS_ASSISTANCE", null, 1)));
 
@@ -341,7 +341,7 @@ class DashboardHttpTest {
                 .andExpect(jsonPath("$.totales_por_estado.OFF_CAMPUS").value(0))
                 .andExpect(jsonPath("$.total_reportados").value(7));
 
-        verify(zonasBrigadista).zonasDe(IdentidadesDePrueba.identidad(UUID.fromString(USUARIO), "BRIGADISTA"));
+        verify(zonasBrigadista).zonasDe(IdentidadesDePrueba.identidad(UUID.fromString(USUARIO), "BRIGADISTA"), EVENTO);
     }
 
     // ---------------------------------------------------------------- personas
@@ -531,7 +531,7 @@ class DashboardHttpTest {
     @Test
     void personasDelBrigadistaSinZonasDeMs05Responde503() throws Exception {
         when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(zonasBrigadista.zonasDe(any())).thenThrow(ApiException.dependenciaNoDisponible());
+        when(zonasBrigadista.zonasDe(any(), any())).thenThrow(ApiException.dependenciaNoDisponible());
 
         mockMvc.perform(como(BASE + "/personas", "BRIGADISTA"))
                 .andExpect(status().isServiceUnavailable())
@@ -955,7 +955,7 @@ class DashboardHttpTest {
     @Test
     void asistenciaDelBrigadistaUsaSusZonasYSuIdentidadDeLasCabeceras() throws Exception {
         when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(zonasBrigadista.zonasDe(any())).thenReturn(new ZonasAsignadas(Set.of(EDIFICIO), Set.of(ESPACIO),
+        when(zonasBrigadista.zonasDe(any(), any())).thenReturn(new ZonasAsignadas(Set.of(EDIFICIO), Set.of(ESPACIO),
                 Set.of(PUNTO_A)));
         when(checkins.buscarVigentesConAsistencia(EVENTO, true, Set.of(PUNTO_A), Set.of(EDIFICIO), Set.of(ESPACIO),
                 PageRequest.of(0, 20)))
@@ -970,7 +970,7 @@ class DashboardHttpTest {
                 .andExpect(jsonPath("$.contenido[0].usuario_id").value(ANA.toString()))
                 .andExpect(jsonPath("$.total_elementos").value(1));
 
-        verify(zonasBrigadista).zonasDe(IdentidadesDePrueba.identidad(UUID.fromString(USUARIO), "BRIGADISTA"));
+        verify(zonasBrigadista).zonasDe(IdentidadesDePrueba.identidad(UUID.fromString(USUARIO), "BRIGADISTA"), EVENTO);
     }
 
     /**
@@ -981,7 +981,7 @@ class DashboardHttpTest {
     @Test
     void asistenciaDelBrigadistaSinZonasDeMs05Responde503() throws Exception {
         when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(zonasBrigadista.zonasDe(any())).thenThrow(ApiException.dependenciaNoDisponible());
+        when(zonasBrigadista.zonasDe(any(), any())).thenThrow(ApiException.dependenciaNoDisponible());
 
         mockMvc.perform(como(BASE + "/asistencia", "BRIGADISTA"))
                 .andExpect(status().isServiceUnavailable())

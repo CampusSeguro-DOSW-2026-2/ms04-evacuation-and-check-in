@@ -32,6 +32,8 @@ class ZonasBrigadistaClientTest {
     private static final UUID ESPACIO = UUID.fromString("4e9c7a15-3b2d-4f60-a8e1-7c5d9b3f1a28");
     private static final UUID ZONA_SEGURA = UUID.fromString("1f2e3d4c-5b6a-4978-8a9b-0c1d2e3f4a5b");
     private static final UUID PUNTO = UUID.fromString("7a1d4e2b-5c3f-4a8e-b9d0-2e6f1c4a7b35");
+    private static final UUID EVENTO = UUID.fromString("5d8a2c61-9e4b-4f37-8b1a-3c6e0d9f2a74");
+    private static final UUID OTRO_EVENTO = UUID.fromString("8e3b1f05-6a2d-4c49-9f7e-1b4d6a0c3e58");
     private static final RequesterIdentity IDENTIDAD = IdentidadesDePrueba.identidad(BRIGADISTA, "BRIGADISTA", "ESTUDIANTE");
 
     private final JsonMapper json = JsonMapper.builder().build();
@@ -40,9 +42,13 @@ class ZonasBrigadistaClientTest {
     private GatewayClient gateway;
 
     private static String asignacion(String tipo, UUID ubicacion, String estado) {
+        return asignacion(EVENTO, tipo, ubicacion, estado);
+    }
+
+    private static String asignacion(UUID evento, String tipo, UUID ubicacion, String estado) {
         return """
                 {"idAsignacion":"%s","eventoId":"%s","ubicacionId":"%s","tipoUbicacion":"%s","estado":"%s"}"""
-                .formatted(UUID.randomUUID(), UUID.randomUUID(), ubicacion, tipo, estado);
+                .formatted(UUID.randomUUID(), evento, ubicacion, tipo, estado);
     }
 
     private void respuesta(String asignaciones) {
@@ -65,7 +71,7 @@ class ZonasBrigadistaClientTest {
                 asignacion("PUNTO_ENCUENTRO", PUNTO, "VIGENTE"),
                 asignacion("ZONA_SEGURA", ZONA_SEGURA, "VIGENTE")));
 
-        ZonasAsignadas zonas = new ZonasBrigadistaClientImpl(gateway).zonasDe(IDENTIDAD);
+        ZonasAsignadas zonas = new ZonasBrigadistaClientImpl(gateway).zonasDe(IDENTIDAD, EVENTO);
 
         assertEquals(Set.of(EDIFICIO), zonas.edificios());
         assertEquals(Set.of(ESPACIO), zonas.espacios());
@@ -80,10 +86,26 @@ class ZonasBrigadistaClientTest {
         respuesta(String.join(",", asignacion("EDIFICIO", EDIFICIO, "RETIRADA"),
                 asignacion("OTRO", PUNTO, "VIGENTE")));
 
-        ZonasAsignadas zonas = new ZonasBrigadistaClientImpl(gateway).zonasDe(IDENTIDAD);
+        ZonasAsignadas zonas = new ZonasBrigadistaClientImpl(gateway).zonasDe(IDENTIDAD, EVENTO);
 
         assertTrue(zonas.edificios().isEmpty());
         assertTrue(zonas.espacios().isEmpty());
+        assertTrue(zonas.puntosEncuentro().isEmpty());
+    }
+
+    /**
+     * Las asignaciones vigentes de otro evento no cuentan: el brigadista solo ve sus zonas en el evento consultado
+     */
+    @Test
+    void ignoraLasAsignacionesDeOtrosEventos() {
+        respuesta(String.join(",", asignacion(OTRO_EVENTO, "EDIFICIO", EDIFICIO, "VIGENTE"),
+                asignacion(OTRO_EVENTO, "PUNTO_ENCUENTRO", PUNTO, "VIGENTE"),
+                asignacion("ESPACIO", ESPACIO, "VIGENTE")));
+
+        ZonasAsignadas zonas = new ZonasBrigadistaClientImpl(gateway).zonasDe(IDENTIDAD, EVENTO);
+
+        assertTrue(zonas.edificios().isEmpty());
+        assertEquals(Set.of(ESPACIO), zonas.espacios());
         assertTrue(zonas.puntosEncuentro().isEmpty());
     }
 
@@ -96,7 +118,7 @@ class ZonasBrigadistaClientTest {
                 IDENTIDAD.permisosComoCabecera()))
                 .thenReturn(json.readTree("{\"tareasPendientes\":[]}"));
 
-        ZonasAsignadas zonas = new ZonasBrigadistaClientImpl(gateway).zonasDe(IDENTIDAD);
+        ZonasAsignadas zonas = new ZonasBrigadistaClientImpl(gateway).zonasDe(IDENTIDAD, EVENTO);
 
         assertTrue(zonas.edificios().isEmpty());
         assertTrue(zonas.espacios().isEmpty());
@@ -113,7 +135,7 @@ class ZonasBrigadistaClientTest {
                 .thenThrow(ApiException.dependenciaNoDisponible());
 
         ApiException error = assertThrows(ApiException.class,
-                () -> new ZonasBrigadistaClientImpl(gateway).zonasDe(IDENTIDAD));
+                () -> new ZonasBrigadistaClientImpl(gateway).zonasDe(IDENTIDAD, EVENTO));
 
         assertEquals(ErrorCode.DEPENDENCY_UNAVAILABLE, error.getCode());
     }
@@ -125,10 +147,10 @@ class ZonasBrigadistaClientTest {
     @Test
     void ignoraLasAsignacionesConIdsQueNoSonUuid() {
         respuesta("""
-                {"eventoId":"E","ubicacionId":"ZONA-001","tipoUbicacion":"ZONA_SEGURA","estado":"VIGENTE"},"""
-                + asignacion("EDIFICIO", EDIFICIO, "VIGENTE"));
+                {"eventoId":"%s","ubicacionId":"ZONA-001","tipoUbicacion":"ZONA_SEGURA","estado":"VIGENTE"},"""
+                .formatted(EVENTO) + asignacion("EDIFICIO", EDIFICIO, "VIGENTE"));
 
-        ZonasAsignadas zonas = new ZonasBrigadistaClientImpl(gateway).zonasDe(IDENTIDAD);
+        ZonasAsignadas zonas = new ZonasBrigadistaClientImpl(gateway).zonasDe(IDENTIDAD, EVENTO);
 
         assertEquals(Set.of(EDIFICIO), zonas.edificios());
         assertTrue(zonas.puntosEncuentro().isEmpty());

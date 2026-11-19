@@ -118,7 +118,7 @@ public class DashboardService {
     public Consolidado consolidado(UUID eventoId, RequesterIdentity requester) {
         Evento evento = eventos.findById(eventoId)
                 .orElseThrow(() -> ApiException.noEncontrado(EVENTO_NO_ENCONTRADO));
-        Alcance alcance = alcanceDe(requester);
+        Alcance alcance = alcanceDe(requester, eventoId);
         List<ConteoPorEstadoYPunto> filas = checkins.contarVigentes(eventoId, alcance.restringido(),
                 alcance.zonas().puntosEncuentro(), alcance.zonas().edificios(), alcance.zonas().espacios());
 
@@ -159,7 +159,7 @@ public class DashboardService {
         if (!eventos.existsById(eventoId)) {
             throw ApiException.noEncontrado(EVENTO_NO_ENCONTRADO);
         }
-        Alcance alcance = alcanceDe(requester);
+        Alcance alcance = alcanceDe(requester, eventoId);
         Page<Checkin> pagina = checkins.buscarVigentes(eventoId, estado, puntoEncuentroId, alcance.restringido(),
                 alcance.zonas().puntosEncuentro(), alcance.zonas().edificios(), alcance.zonas().espacios(),
                 PageRequest.of(page, size));
@@ -180,12 +180,13 @@ public class DashboardService {
      * quien tiene ambos ve todo el evento
      *
      * @param requester solicitante con {@code ms04:dashboard:read}
+     * @param eventoId evento consultado: solo cuentan las zonas que MS05 le asignó al brigadista en ese evento
      * @return el alcance de la consulta
      * @throws ApiException 503 DEPENDENCIA_NO_DISPONIBLE si es un BRIGADISTA y MS05 no entrega sus zonas
      */
-    private Alcance alcanceDe(RequesterIdentity requester) {
+    private Alcance alcanceDe(RequesterIdentity requester, UUID eventoId) {
         if (esSoloBrigadista(requester)) {
-            return new Alcance(true, zonasBrigadista.zonasDe(requester));
+            return new Alcance(true, zonasBrigadista.zonasDe(requester, eventoId));
         }
         return new Alcance(false, new ZonasAsignadas(Set.of(), Set.of(), Set.of()));
     }
@@ -269,7 +270,7 @@ public class DashboardService {
         if (!eventos.existsById(eventoId)) {
             throw ApiException.noEncontrado(EVENTO_NO_ENCONTRADO);
         }
-        Alcance alcance = alcanceDe(requester);
+        Alcance alcance = alcanceDe(requester, eventoId);
         Page<Checkin> pagina = checkins.buscarVigentesConAsistencia(eventoId, alcance.restringido(),
                 alcance.zonas().puntosEncuentro(), alcance.zonas().edificios(), alcance.zonas().espacios(),
                 PageRequest.of(page, size));

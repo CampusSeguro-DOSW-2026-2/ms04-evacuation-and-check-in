@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.audit.AuditAction;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.audit.AuditContext;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.audit.AuditRecorder;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.audit.AuditResult;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.ResultadoEnvioMs05;
@@ -21,6 +22,7 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.Checkin;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.EstadoCheckin;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.EstadoEnvio;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.SolicitudAsistencia;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.EventoRepository;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.SolicitudAsistenciaRepository;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.RequesterIdentity;
 
@@ -37,14 +39,17 @@ public class SolicitudAsistenciaService {
     private static final Logger log = LoggerFactory.getLogger(SolicitudAsistenciaService.class);
 
     private final SolicitudAsistenciaRepository solicitudes;
+    private final EventoRepository eventos;
     private final SolicitudAsistenciaClient ms05;
     private final AuditRecorder auditoria;
     private final Clock clock;
     private final TransactionTemplate transaccion;
 
-    public SolicitudAsistenciaService(SolicitudAsistenciaRepository solicitudes, SolicitudAsistenciaClient ms05,
-            AuditRecorder auditoria, Clock clock, PlatformTransactionManager transactionManager) {
+    public SolicitudAsistenciaService(SolicitudAsistenciaRepository solicitudes, EventoRepository eventos,
+            SolicitudAsistenciaClient ms05, AuditRecorder auditoria, Clock clock,
+            PlatformTransactionManager transactionManager) {
         this.solicitudes = solicitudes;
+        this.eventos = eventos;
         this.ms05 = ms05;
         this.auditoria = auditoria;
         this.clock = clock;
@@ -107,12 +112,30 @@ public class SolicitudAsistenciaService {
         AuditResult resultado = creada ? AuditResult.EXITO : AuditResult.FALLO;
         String recurso = AuditRecorder.checkinResource(envio.solicitud().getCheckinId());
         String detalle = envio.solicitud().getEstadoEnvio().name();
+        AuditContext contexto = contextoDe(envio.solicitud());
         if (requester == null) {
-            auditoria.recordSystem(AuditAction.SOLICITUD_ASISTENCIA, resultado, recurso, detalle, correlationId);
+            auditoria.recordSystem(AuditAction.SOLICITUD_ASISTENCIA, resultado, recurso, detalle, correlationId,
+                    contexto);
         } else {
             auditoria.recordAs(AuditAction.SOLICITUD_ASISTENCIA, resultado, requester, recurso, detalle,
-                    correlationId);
+                    correlationId, contexto);
         }
+    }
+
+    /**
+     * Evento de la solicitud con su tipo y los atributos para MS08 (Estándares, sección 12): {@code ubicacion_tipo} y
+     * {@code ubicacion_id}; el estado del envío va en el detalle. Si no se puede leer el evento, la auditoría va sin evento
+     */
+    private AuditContext contextoDe(SolicitudAsistencia solicitud) {
+        AuditContext contexto = AuditContext.NINGUNO;
+        try {
+            contexto = eventos.findById(solicitud.getEventoId()).map(AuditContext::de).orElse(AuditContext.NINGUNO);
+        } catch (RuntimeException e) {
+            log.warn("No se pudo leer el evento {} para auditar la solicitud de asistencia: {}",
+                    solicitud.getEventoId(), e.toString());
+        }
+        return contexto.con("ubicacion_tipo", solicitud.getUbicacionTipo())
+                .con("ubicacion_id", solicitud.getUbicacionId());
     }
 
     private EnvioSolicitud intentarEnvio(UUID solicitudId, String rolesUsuario, String permisosUsuario,

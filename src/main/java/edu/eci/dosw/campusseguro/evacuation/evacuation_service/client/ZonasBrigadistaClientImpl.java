@@ -23,8 +23,8 @@ import tools.jackson.databind.JsonNode;
  * <li>{@code ZONA_SEGURA} y {@code PUNTO_ENCUENTRO} son puntos de encuentro (en MS02 son zonas seguras)</li>
  * <li>{@code ESPACIO} son espacios; MS05 todavía no asigna ese tipo</li>
  * </ul>
- * MS05 retira las asignaciones cuando termina la asignación o finaliza el evento, así que las vigentes son las de los
- * eventos en curso. Una asignación cuyo id no es un UUID de MS02 se ignora, porque no puede coincidir con ninguna
+ * Cada asignación trae también el evento ({@code eventoId}): solo cuentan las del evento consultado, porque un
+ * brigadista puede tener asignaciones vigentes en más de un evento. Una asignación cuyo id no es un UUID de MS02 se ignora, porque no puede coincidir con ninguna
  * ubicación de MS04
  */
 public class ZonasBrigadistaClientImpl implements ZonasBrigadistaClient {
@@ -47,14 +47,15 @@ public class ZonasBrigadistaClientImpl implements ZonasBrigadistaClient {
     }
 
     @Override
-    public ZonasAsignadas zonasDe(RequesterIdentity brigadista) {
+    public ZonasAsignadas zonasDe(RequesterIdentity brigadista, UUID eventoId) {
         JsonNode respuesta = gateway.get(ZONES_PATH, brigadista.userId(), brigadista.rolesComoCabecera(),
                 brigadista.permisosComoCabecera());
         Set<UUID> edificios = new HashSet<>();
         Set<UUID> espacios = new HashSet<>();
         Set<UUID> puntosEncuentro = new HashSet<>();
         for (JsonNode asignacion : respuesta.path("asignaciones")) {
-            if (!ESTADO_VIGENTE.equals(asignacion.path("estado").asString(""))) {
+            if (!ESTADO_VIGENTE.equals(asignacion.path("estado").asString(""))
+                    || !eventoId.toString().equalsIgnoreCase(asignacion.path("eventoId").asString("").strip())) {
                 continue;
             }
             Set<UUID> destino = switch (asignacion.path("tipoUbicacion").asString("")) {
