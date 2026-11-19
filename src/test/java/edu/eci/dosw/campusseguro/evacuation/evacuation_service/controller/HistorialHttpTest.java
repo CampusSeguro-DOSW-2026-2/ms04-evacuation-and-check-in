@@ -29,6 +29,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.UsuarioNombresClient;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.config.SecurityConfig;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.config.WebMvcConfig;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.Checkin;
@@ -72,6 +73,9 @@ class HistorialHttpTest {
 
     @MockitoBean
     private CheckinRepository checkins;
+
+    @MockitoBean
+    private UsuarioNombresClient nombres;
 
     /**
      * Crea un check-in como lo devuelve la base de datos, con el id y la fecha que asigna ella

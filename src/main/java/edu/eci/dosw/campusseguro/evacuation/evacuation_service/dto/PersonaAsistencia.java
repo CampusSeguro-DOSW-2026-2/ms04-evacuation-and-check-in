@@ -10,6 +10,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  *
  * @param usuarioId usuario
  * @param nombre nombre completo que entrega MS01; null si MS01 no respondió (RN-MS04-25)
+ * @param correo correo institucional que entrega MS01; null si MS01 no entregó el dato (RN-MS04-25)
  * @param ubicacion ubicación reportada
  * @param fechaReporte fecha y hora de su check-in vigente
  * @param solicitudAsistencia id de la solicitud en MS05 y estado de su envío
@@ -17,6 +18,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 public record PersonaAsistencia(
         @JsonProperty("usuario_id") UUID usuarioId,
         String nombre,
+        String correo,
         Ubicacion ubicacion,
         @JsonProperty("fecha_reporte") Instant fechaReporte,
         @JsonProperty("solicitud_asistencia") SolicitudAsistenciaResumen solicitudAsistencia) {

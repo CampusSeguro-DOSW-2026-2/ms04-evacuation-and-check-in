@@ -18,6 +18,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.PoblacionObjetivoClient;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.DatosUsuario;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.UsuarioNombresClient;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.ZonasBrigadistaClient;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.ZonasBrigadistaClient.ZonasAsignadas;
@@ -54,6 +55,9 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.Requeste
 public class DashboardService {
 
     private static final Logger log = LoggerFactory.getLogger(DashboardService.class);
+
+    /** Usuario que MS01 no entregó: nombre y correo nulos */
+    static final DatosUsuario SIN_DATOS = new DatosUsuario(null, null);
 
     public static final String EVENTO_NO_ENCONTRADO = "Evento no encontrado.";
     public static final String PUNTO_SOLO_SAFE = "El punto de encuentro solo aplica a Estoy a salvo.";
@@ -161,10 +165,12 @@ public class DashboardService {
                 PageRequest.of(page, size));
 
         List<UUID> usuarios = pagina.getContent().stream().map(Checkin::getUsuarioId).toList();
-        Map<UUID, String> nombresPorUsuario = nombres.nombresDe(usuarios);
-        Page<CheckinResumen> resumenes = pagina.map(checkin -> new CheckinResumen(checkin.getUsuarioId(),
-                nombresPorUsuario.get(checkin.getUsuarioId()), checkin.getEstado(), checkin.getPuntoEncuentroId(),
-                checkin.getRegistradoEn()));
+        Map<UUID, DatosUsuario> datosPorUsuario = nombres.datosDe(usuarios);
+        Page<CheckinResumen> resumenes = pagina.map(checkin -> {
+            DatosUsuario datos = datosDe(datosPorUsuario, checkin.getUsuarioId());
+            return new CheckinResumen(checkin.getUsuarioId(), datos.nombre(), datos.correo(), checkin.getEstado(),
+                    checkin.getPuntoEncuentroId(), checkin.getRegistradoEn());
+        });
         return PageResponse.from(resumenes);
     }
 
@@ -232,9 +238,12 @@ public class DashboardService {
         int desde = (int) Math.min((long) page * size, pendientes.size());
         int hasta = (int) Math.min((long) desde + size, pendientes.size());
         List<UUID> usuarios = pendientes.subList(desde, hasta);
-        Map<UUID, String> nombresPorUsuario = nombres.nombresDe(usuarios);
+        Map<UUID, DatosUsuario> datosPorUsuario = nombres.datosDe(usuarios);
         List<Pendiente> pagina = usuarios.stream()
-                .map(usuarioId -> new Pendiente(usuarioId, nombresPorUsuario.get(usuarioId)))
+                .map(usuarioId -> {
+                    DatosUsuario datos = datosDe(datosPorUsuario, usuarioId);
+                    return new Pendiente(usuarioId, datos.nombre(), datos.correo());
+                })
                 .toList();
         return PageResponse.of(pagina, page, size, pendientes.size());
     }
@@ -266,7 +275,7 @@ public class DashboardService {
                 PageRequest.of(page, size));
 
         List<UUID> usuarios = pagina.getContent().stream().map(Checkin::getUsuarioId).toList();
-        Map<UUID, String> nombresPorUsuario = nombres.nombresDe(usuarios);
+        Map<UUID, DatosUsuario> datosPorUsuario = nombres.datosDe(usuarios);
         Map<UUID, SolicitudAsistencia> solicitudPorUsuario = new HashMap<>();
         if (!usuarios.isEmpty()) {
             for (SolicitudAsistencia solicitud : solicitudes.findByEventoIdAndUsuarioIdIn(eventoId, usuarios)) {
@@ -284,7 +293,8 @@ public class DashboardService {
             } else {
                 resumen = new SolicitudAsistenciaResumen(solicitud.getSolicitudMs05Id(), solicitud.getEstadoEnvio());
             }
-            personas.add(new PersonaAsistencia(checkin.getUsuarioId(), nombresPorUsuario.get(checkin.getUsuarioId()),
+            DatosUsuario datos = datosDe(datosPorUsuario, checkin.getUsuarioId());
+            personas.add(new PersonaAsistencia(checkin.getUsuarioId(), datos.nombre(), datos.correo(),
                     new Ubicacion(checkin.getUbicacionTipo(), checkin.getUbicacionId()), checkin.getRegistradoEn(),
                     resumen));
         }
@@ -293,5 +303,17 @@ public class DashboardService {
                     sinSolicitud, eventoId);
         }
         return PageResponse.of(personas, page, size, pagina.getTotalElements());
+    }
+
+    /**
+     * Nombre y correo de un usuario; ambos nulos si MS01 no los entregó (RN-MS04-25)
+     *
+     * @param datos datos entregados por MS01
+     * @param usuarioId usuario
+     * @return los datos del usuario, nunca null
+     */
+    static DatosUsuario datosDe(Map<UUID, DatosUsuario> datos, UUID usuarioId) {
+        DatosUsuario encontrado = datos.get(usuarioId);
+        return encontrado != null ? encontrado : SIN_DATOS;
     }
 }

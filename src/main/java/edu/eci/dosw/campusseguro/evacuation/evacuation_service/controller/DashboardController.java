@@ -89,16 +89,16 @@ public class DashboardController {
      * @param page número de página, desde 0
      * @param size tamaño de página, de 1 a 100
      * @param requester identidad tomada de las cabeceras X-User-Id y X-User-Role
-     * @return la página de estados vigentes con el nombre de cada persona
+     * @return la página de estados vigentes con el nombre y el correo de cada persona
      * @throws ApiException 400 VALIDACION con paginación o filtros inválidos, 403 PROHIBIDO sin el permiso
      *         ms04:dashboard:read, 404 NO_ENCONTRADO si el evento no existe, 503 DEPENDENCIA_NO_DISPONIBLE si MS05
      *         no entrega las zonas de un BRIGADISTA
      */
     @Operation(summary = "Listar personas por estado y punto de encuentro (RF-MS04-06, F-02)",
-            description = "Permiso ms04:dashboard:read. Estados vigentes del evento con el nombre de cada persona "
-                    + "(nulo si MS01 no respondió), del reporte más reciente al más antiguo. punto_encuentro_id "
-                    + "solo se combina con estado=SAFE o sin estado. El BRIGADISTA solo recibe las personas de "
-                    + "sus zonas.")
+            description = "Permiso ms04:dashboard:read. Estados vigentes del evento con el nombre y el correo de cada "
+                    + "persona (nulos si MS01 no respondió), del reporte más reciente al más antiguo. "
+                    + "punto_encuentro_id solo se combina con estado=SAFE o sin estado. El BRIGADISTA solo recibe las "
+                    + "personas de sus zonas.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Página de estados vigentes."),
             @ApiResponse(responseCode = "400",
@@ -141,9 +141,9 @@ public class DashboardController {
      */
     @Operation(summary = "Personas pendientes (RF-MS04-07, F-03)",
             description = "Permiso ms04:dashboard:read. Usuarios activos de MS01 con un rol convocado que no "
-                    + "reportaron ninguno de los cuatro estados, ordenados por id de usuario, con su nombre (nulo "
-                    + "si MS01 no lo entregó). total_elementos es el total de pendientes. El BRIGADISTA siempre "
-                    + "recibe una lista vacía. Funciona con el evento en cualquier estado.")
+                    + "reportaron ninguno de los cuatro estados, ordenados por id de usuario, con su nombre y su "
+                    + "correo (nulos si MS01 no los entregó). total_elementos es el total de pendientes. El "
+                    + "BRIGADISTA siempre recibe una lista vacía. Funciona con el evento en cualquier estado.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Página de pendientes."),
             @ApiResponse(responseCode = "400", description = "Paginación inválida.",
@@ -182,7 +182,8 @@ public class DashboardController {
      */
     @Operation(summary = "Personas que requieren asistencia (RF-MS04-08, F-03)",
             description = "Permiso ms04:dashboard:read. Personas con estado vigente NEEDS_ASSISTANCE, del reporte "
-                    + "más antiguo al más reciente, con su nombre (nulo si MS01 no lo entregó), su ubicación, la "
+                    + "más antiguo al más reciente, con su nombre y su correo (nulos si MS01 no los entregó), su "
+                    + "ubicación, la "
                     + "fecha de su check-in vigente y su solicitud en MS05 con el estado de su envío (ENVIADA, "
                     + "PENDIENTE_ENVIO o RECHAZADA). El BRIGADISTA solo recibe las personas de sus zonas. La "
                     + "asignación y la atención ocurren en MS05. Funciona con el evento en cualquier estado.")

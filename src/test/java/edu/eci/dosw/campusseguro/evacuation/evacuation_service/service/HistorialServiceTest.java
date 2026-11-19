@@ -13,6 +13,7 @@ import static org.mockito.Mockito.when;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -26,6 +27,8 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.DatosUsuario;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.UsuarioNombresClient;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.PageResponse;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.RegistroHistorial;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.Ubicacion;
@@ -61,6 +64,9 @@ class HistorialServiceTest {
     @Mock
     private CheckinRepository checkins;
 
+    @Mock
+    private UsuarioNombresClient nombres;
+
     private HistorialService service;
 
     /**
@@ -68,7 +74,7 @@ class HistorialServiceTest {
      */
     @BeforeEach
     void crearElService() {
-        service = new HistorialService(eventos, checkins);
+        service = new HistorialService(eventos, checkins, nombres);
         lenient().when(eventos.existsById(EVENTO)).thenReturn(true);
     }
 
@@ -110,6 +116,29 @@ class HistorialServiceTest {
         assertEquals(PUNTO_A, registro.puntoEncuentroId());
         assertNull(registro.ubicacion());
         assertEquals(PRIMERO, registro.registradoEn());
+    }
+
+    /**
+     * Cada registro trae el nombre y el correo que entrega MS01, pedidos una sola vez por persona de la página; quien
+     * no aparece en la respuesta de MS01 queda con ambos nulos (RN-MS04-25)
+     */
+    @Test
+    void cadaRegistroLlegaConElNombreYElCorreoDeMs01() {
+        Checkin deAna = checkin(ANA, EstadoCheckin.EVACUATING, null, null, null, PRIMERO);
+        Checkin otroDeAna = checkin(ANA, EstadoCheckin.SAFE, PUNTO_A, null, null, SEGUNDO);
+        Checkin deLuis = checkin(LUIS, EstadoCheckin.OFF_CAMPUS, null, null, null, SEGUNDO);
+        when(checkins.buscarHistorial(EVENTO, SIN_USUARIO, SIN_ESTADO, PageRequest.of(0, 20)))
+                .thenReturn(new PageImpl<>(List.of(deAna, otroDeAna, deLuis), PageRequest.of(0, 20), 3));
+        when(nombres.datosDe(List.of(ANA, LUIS)))
+                .thenReturn(Map.of(ANA, new DatosUsuario("Ana Pérez", "ana.perez@escuelaing.edu.co")));
+
+        List<RegistroHistorial> registros = service.historial(EVENTO, SIN_USUARIO, SIN_ESTADO, 0, 20).contenido();
+
+        assertEquals("Ana Pérez", registros.get(0).nombre());
+        assertEquals("ana.perez@escuelaing.edu.co", registros.get(0).correo());
+        assertEquals("ana.perez@escuelaing.edu.co", registros.get(1).correo());
+        assertNull(registros.get(2).nombre());
+        assertNull(registros.get(2).correo());
     }
 
     /**

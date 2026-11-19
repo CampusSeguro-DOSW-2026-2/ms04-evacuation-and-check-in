@@ -34,6 +34,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.PoblacionObjetivoClient;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.DatosUsuario;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.UsuarioNombresClient;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.ZonasBrigadistaClient;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.ZonasBrigadistaClient.ZonasAsignadas;
@@ -120,6 +121,26 @@ class DashboardServiceTest {
     private PoblacionObjetivoClient poblacionObjetivo;
 
     private DashboardService service;
+
+    /**
+     * Correo de prueba de una persona, derivado de su nombre
+     *
+     * @param nombre nombre completo
+     * @return el correo institucional de prueba
+     */
+    private static String correo(String nombre) {
+        return nombre.toLowerCase().replace(' ', '.') + "@escuelaing.edu.co";
+    }
+
+    /**
+     * Datos que entrega MS01 para una persona de prueba
+     *
+     * @param nombre nombre completo
+     * @return el nombre y su correo de prueba
+     */
+    private static DatosUsuario datos(String nombre) {
+        return new DatosUsuario(nombre, correo(nombre));
+    }
 
     /**
      * Crea el service con el reloj fijo
@@ -387,13 +408,15 @@ class DashboardServiceTest {
                 PageRequest.of(1, 2), 5);
         when(checkins.buscarVigentes(EVENTO, null, null, false, NADA, NADA, NADA, PageRequest.of(1, 2)))
                 .thenReturn(pagina);
-        when(nombres.nombresDe(List.of(ANA, LUIS))).thenReturn(Map.of(ANA, "Ana Pérez", LUIS, "Luis Rojas"));
+        when(nombres.datosDe(List.of(ANA, LUIS)))
+                .thenReturn(Map.of(ANA, datos("Ana Pérez"), LUIS, datos("Luis Rojas")));
 
         PageResponse<CheckinResumen> respuesta = service.personas(EVENTO, null, null, 1, 2, con("COORDINADOR"));
 
         assertEquals(List.of(
-                new CheckinResumen(ANA, "Ana Pérez", EstadoCheckin.SAFE, PUNTO_A, REGISTRADO),
-                new CheckinResumen(LUIS, "Luis Rojas", EstadoCheckin.EVACUATING, null, REGISTRADO)),
+                new CheckinResumen(ANA, "Ana Pérez", correo("Ana Pérez"), EstadoCheckin.SAFE, PUNTO_A, REGISTRADO),
+                new CheckinResumen(LUIS, "Luis Rojas", correo("Luis Rojas"), EstadoCheckin.EVACUATING, null,
+                        REGISTRADO)),
                 respuesta.contenido());
         assertEquals(1, respuesta.page());
         assertEquals(2, respuesta.size());
@@ -411,7 +434,7 @@ class DashboardServiceTest {
         when(checkins.buscarVigentes(EVENTO, null, null, false, NADA, NADA, NADA, PageRequest.of(0, 20)))
                 .thenReturn(new PageImpl<>(List.of(checkin(ANA, EstadoCheckin.OFF_CAMPUS, null)),
                         PageRequest.of(0, 20), 1));
-        when(nombres.nombresDe(List.of(ANA))).thenReturn(Map.of());
+        when(nombres.datosDe(List.of(ANA))).thenReturn(Map.of());
 
         PageResponse<CheckinResumen> respuesta = service.personas(EVENTO, null, null, 0, 20, con("AUDITOR"));
 
@@ -496,7 +519,7 @@ class DashboardServiceTest {
                 PageRequest.of(0, 20)))
                 .thenReturn(new PageImpl<>(List.of(checkin(ANA, EstadoCheckin.SAFE, PUNTO_A)),
                         PageRequest.of(0, 20), 1));
-        when(nombres.nombresDe(List.of(ANA))).thenReturn(Map.of(ANA, "Ana Pérez"));
+        when(nombres.datosDe(List.of(ANA))).thenReturn(Map.of(ANA, datos("Ana Pérez")));
 
         PageResponse<CheckinResumen> respuesta = service.personas(EVENTO, null, null, 0, 20, brigadista);
 
@@ -539,7 +562,7 @@ class DashboardServiceTest {
         assertEquals(pagina, respuesta.page());
         assertEquals(0, respuesta.totalElementos());
         assertEquals(0, respuesta.totalPaginas());
-        verify(nombres).nombresDe(List.of());
+        verify(nombres).datosDe(List.of());
         verify(zonasBrigadista, never()).zonasDe(any());
     }
 
@@ -591,16 +614,19 @@ class DashboardServiceTest {
                         checkinAsistencia(ANA, TipoUbicacion.EDIFICIO, EDIFICIO, PRIMER_REPORTE),
                         checkinAsistencia(LUIS, TipoUbicacion.ESPACIO, ESPACIO, SEGUNDO_REPORTE)),
                         PageRequest.of(0, 20), 2));
-        when(nombres.nombresDe(List.of(ANA, LUIS))).thenReturn(Map.of(ANA, "Ana Pérez", LUIS, "Luis Gómez"));
+        when(nombres.datosDe(List.of(ANA, LUIS)))
+                .thenReturn(Map.of(ANA, datos("Ana Pérez"), LUIS, datos("Luis Gómez")));
         when(solicitudes.findByEventoIdAndUsuarioIdIn(EVENTO, List.of(ANA, LUIS))).thenReturn(List.of(
                 solicitud(LUIS, null, EstadoEnvio.PENDIENTE_ENVIO), solicitud(ANA, "SOL-2026-0042", EstadoEnvio.ENVIADA)));
 
         PageResponse<PersonaAsistencia> respuesta = service.asistencia(EVENTO, 0, 20, con("COORDINADOR"));
 
         assertEquals(2, respuesta.totalElementos());
-        assertEquals(List.of(new PersonaAsistencia(ANA, "Ana Pérez", new Ubicacion(TipoUbicacion.EDIFICIO, EDIFICIO),
+        assertEquals(List.of(new PersonaAsistencia(ANA, "Ana Pérez", correo("Ana Pérez"),
+                new Ubicacion(TipoUbicacion.EDIFICIO, EDIFICIO),
                 PRIMER_REPORTE, new SolicitudAsistenciaResumen("SOL-2026-0042", EstadoEnvio.ENVIADA)),
-                new PersonaAsistencia(LUIS, "Luis Gómez", new Ubicacion(TipoUbicacion.ESPACIO, ESPACIO),
+                new PersonaAsistencia(LUIS, "Luis Gómez", correo("Luis Gómez"),
+                        new Ubicacion(TipoUbicacion.ESPACIO, ESPACIO),
                         SEGUNDO_REPORTE, new SolicitudAsistenciaResumen(null, EstadoEnvio.PENDIENTE_ENVIO))),
                 respuesta.contenido());
         verifyNoInteractions(zonasBrigadista);
@@ -643,7 +669,7 @@ class DashboardServiceTest {
                 .thenReturn(new PageImpl<>(
                         List.of(checkinAsistencia(ANA, TipoUbicacion.EDIFICIO, EDIFICIO, PRIMER_REPORTE)),
                         PageRequest.of(0, 20), 1));
-        when(nombres.nombresDe(List.of(ANA))).thenReturn(Map.of());
+        when(nombres.datosDe(List.of(ANA))).thenReturn(Map.of());
         when(solicitudes.findByEventoIdAndUsuarioIdIn(EVENTO, List.of(ANA)))
                 .thenReturn(List.of(solicitud(ANA, "SOL-2026-0042", EstadoEnvio.ENVIADA)));
 
@@ -848,12 +874,13 @@ class DashboardServiceTest {
         when(poblacionObjetivo.usuariosActivosPorRoles(ROLES, INICIO, coordinador))
                 .thenReturn(Optional.of(Set.of(usuario(1), usuario(2), usuario(3), usuario(4))));
         when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of(usuario(2), usuario(4)));
-        when(nombres.nombresDe(List.of(usuario(1), usuario(3))))
-                .thenReturn(Map.of(usuario(1), "Ana Pérez", usuario(3), "Luis Gómez"));
+        when(nombres.datosDe(List.of(usuario(1), usuario(3))))
+                .thenReturn(Map.of(usuario(1), datos("Ana Pérez"), usuario(3), datos("Luis Gómez")));
 
         PageResponse<Pendiente> respuesta = service.pendientes(EVENTO, 0, 20, coordinador);
 
-        assertEquals(List.of(new Pendiente(usuario(1), "Ana Pérez"), new Pendiente(usuario(3), "Luis Gómez")),
+        assertEquals(List.of(new Pendiente(usuario(1), "Ana Pérez", correo("Ana Pérez")),
+                new Pendiente(usuario(3), "Luis Gómez", correo("Luis Gómez"))),
                 respuesta.contenido());
         assertEquals(2, respuesta.totalElementos());
         assertEquals(1, respuesta.totalPaginas());
@@ -872,7 +899,7 @@ class DashboardServiceTest {
         when(poblacionObjetivo.usuariosActivosPorRoles(ROLES, INICIO, auditor))
                 .thenReturn(Optional.of(Set.of(usuario(9), usuario(3), usuario(7), usuario(1))));
         when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of());
-        when(nombres.nombresDe(List.of(usuario(1), usuario(3), usuario(7), usuario(9)))).thenReturn(Map.of());
+        when(nombres.datosDe(List.of(usuario(1), usuario(3), usuario(7), usuario(9)))).thenReturn(Map.of());
 
         PageResponse<Pendiente> respuesta = service.pendientes(EVENTO, 0, 20, auditor);
 
@@ -890,7 +917,7 @@ class DashboardServiceTest {
         when(poblacionObjetivo.usuariosActivosPorRoles(ROLES, INICIO, organizador))
                 .thenReturn(Optional.of(Set.of(usuario(1), usuario(2))));
         when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of());
-        when(nombres.nombresDe(List.of(usuario(1), usuario(2)))).thenReturn(Map.of());
+        when(nombres.datosDe(List.of(usuario(1), usuario(2)))).thenReturn(Map.of());
 
         PageResponse<Pendiente> respuesta = service.pendientes(EVENTO, 0, 20, organizador);
 
@@ -907,7 +934,7 @@ class DashboardServiceTest {
         when(poblacionObjetivo.usuariosActivosPorRoles(ROLES, INICIO, coordinador))
                 .thenReturn(Optional.of(Set.of(usuario(1), usuario(2))));
         when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of(usuario(1), usuario(2)));
-        when(nombres.nombresDe(List.of())).thenReturn(Map.of());
+        when(nombres.datosDe(List.of())).thenReturn(Map.of());
 
         PageResponse<Pendiente> respuesta = service.pendientes(EVENTO, 0, 20, coordinador);
 
@@ -926,7 +953,7 @@ class DashboardServiceTest {
         when(poblacionObjetivo.usuariosActivosPorRoles(ROLES, INICIO, coordinador))
                 .thenReturn(Optional.of(Set.of(usuario(1), usuario(2))));
         when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of(usuario(2), usuario(8)));
-        when(nombres.nombresDe(List.of(usuario(1)))).thenReturn(Map.of());
+        when(nombres.datosDe(List.of(usuario(1)))).thenReturn(Map.of());
 
         PageResponse<Pendiente> respuesta = service.pendientes(EVENTO, 0, 20, coordinador);
 
@@ -943,7 +970,7 @@ class DashboardServiceTest {
         when(eventos.findById(EVENTO)).thenReturn(Optional.of(eventoConvocado()));
         when(poblacionObjetivo.usuariosActivosPorRoles(ROLES, INICIO, coordinador)).thenReturn(Optional.of(Set.of()));
         when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of());
-        when(nombres.nombresDe(List.of())).thenReturn(Map.of());
+        when(nombres.datosDe(List.of())).thenReturn(Map.of());
 
         PageResponse<Pendiente> respuesta = service.pendientes(EVENTO, 0, 20, coordinador);
 
@@ -962,11 +989,11 @@ class DashboardServiceTest {
         when(poblacionObjetivo.usuariosActivosPorRoles(ROLES, INICIO, coordinador)).thenReturn(Optional.of(
                 Set.of(usuario(1), usuario(2), usuario(3), usuario(4), usuario(5))));
         when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of());
-        when(nombres.nombresDe(List.of(usuario(3), usuario(4)))).thenReturn(Map.of(usuario(3), "Tres"));
+        when(nombres.datosDe(List.of(usuario(3), usuario(4)))).thenReturn(Map.of(usuario(3), datos("Tres")));
 
         PageResponse<Pendiente> respuesta = service.pendientes(EVENTO, 1, 2, coordinador);
 
-        assertEquals(List.of(new Pendiente(usuario(3), "Tres"), new Pendiente(usuario(4), null)),
+        assertEquals(List.of(new Pendiente(usuario(3), "Tres", correo("Tres")), new Pendiente(usuario(4), null, null)),
                 respuesta.contenido());
         assertEquals(5, respuesta.totalElementos());
         assertEquals(3, respuesta.totalPaginas());
@@ -987,7 +1014,7 @@ class DashboardServiceTest {
         when(poblacionObjetivo.usuariosActivosPorRoles(ROLES, INICIO, coordinador)).thenReturn(Optional.of(
                 Set.of(usuario(1), usuario(2), usuario(3), usuario(4), usuario(5))));
         when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of());
-        when(nombres.nombresDe(List.of())).thenReturn(Map.of());
+        when(nombres.datosDe(List.of())).thenReturn(Map.of());
 
         PageResponse<Pendiente> respuesta = service.pendientes(EVENTO, pagina, 2, coordinador);
 
@@ -1006,7 +1033,7 @@ class DashboardServiceTest {
         when(poblacionObjetivo.usuariosActivosPorRoles(ROLES, INICIO, coordinador))
                 .thenReturn(Optional.of(Set.of(usuario(1))));
         when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of());
-        when(nombres.nombresDe(List.of(usuario(1)))).thenReturn(Map.of());
+        when(nombres.datosDe(List.of(usuario(1)))).thenReturn(Map.of());
 
         PageResponse<Pendiente> respuesta = service.pendientes(EVENTO, 0, 20, coordinador);
 
@@ -1059,7 +1086,7 @@ class DashboardServiceTest {
         when(poblacionObjetivo.usuariosActivosPorRoles(ROLES, INICIO, solicitante))
                 .thenReturn(Optional.of(Set.of(usuario(1))));
         when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of());
-        when(nombres.nombresDe(List.of(usuario(1)))).thenReturn(Map.of());
+        when(nombres.datosDe(List.of(usuario(1)))).thenReturn(Map.of());
 
         assertEquals(1, service.pendientes(EVENTO, 0, 20, solicitante).totalElementos());
     }
@@ -1096,7 +1123,7 @@ class DashboardServiceTest {
         when(poblacionObjetivo.usuariosActivosPorRoles(ROLES, INICIO, coordinador))
                 .thenReturn(Optional.of(Set.of(usuario(1))));
         when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of());
-        when(nombres.nombresDe(List.of(usuario(1)))).thenReturn(Map.of());
+        when(nombres.datosDe(List.of(usuario(1)))).thenReturn(Map.of());
 
         assertEquals(1, service.pendientes(EVENTO, 0, 20, coordinador).totalElementos());
     }
@@ -1119,7 +1146,7 @@ class DashboardServiceTest {
         when(poblacionObjetivo.usuariosActivosPorRoles(ROLES, corte, coordinador))
                 .thenReturn(Optional.of(Set.of()));
         when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of());
-        when(nombres.nombresDe(List.of())).thenReturn(Map.of());
+        when(nombres.datosDe(List.of())).thenReturn(Map.of());
 
         assertTrue(service.pendientes(EVENTO, 0, 20, coordinador).contenido().isEmpty());
     }

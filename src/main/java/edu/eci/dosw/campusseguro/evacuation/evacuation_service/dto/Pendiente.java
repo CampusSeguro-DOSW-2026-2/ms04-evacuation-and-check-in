@@ -9,8 +9,10 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  *
  * @param usuarioId usuario
  * @param nombre nombre completo que entrega MS01; null si MS01 no entregó el dato (RN-MS04-25)
+ * @param correo correo institucional que entrega MS01; null si MS01 no entregó el dato (RN-MS04-25)
  */
 public record Pendiente(
         @JsonProperty("usuario_id") UUID usuarioId,
-        String nombre) {
+        String nombre,
+        String correo) {
 }

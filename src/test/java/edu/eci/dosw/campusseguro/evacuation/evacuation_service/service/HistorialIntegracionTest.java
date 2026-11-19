@@ -18,7 +18,9 @@ import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabas
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.UsuarioNombresClient;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.PageResponse;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.RegistroHistorial;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.Ubicacion;
@@ -62,6 +64,9 @@ class HistorialIntegracionTest {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @MockitoBean
+    private UsuarioNombresClient nombres;
 
     /**
      * Crea un evento en el estado indicado, con las fechas que exigen las restricciones del esquema: sin inicio en
