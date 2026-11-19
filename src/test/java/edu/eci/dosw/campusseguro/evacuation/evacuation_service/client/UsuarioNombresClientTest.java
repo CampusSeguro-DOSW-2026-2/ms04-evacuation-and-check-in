@@ -69,6 +69,23 @@ class UsuarioNombresClientTest {
     }
 
     /**
+     * Entrega el nombre completo y el correo de cada usuario; el correo vacío o ausente queda nulo
+     */
+    @Test
+    void entregaElNombreYElCorreoDeCadaUsuario() {
+        when(gateway.post(any(), any())).thenReturn(json.readTree("""
+                {"usuarios":[
+                  {"id":"%s","primer_nombre":"Ana","primer_apellido":"Pérez","correo":" ana@escuelaing.edu.co "},
+                  {"id":"%s","primer_nombre":"Luis","primer_apellido":"Rojas"}
+                ],"no_encontrados":[]}""".formatted(ANA, LUIS)));
+
+        Map<UUID, DatosUsuario> datos = new UsuarioNombresClientImpl(gateway).datosDe(List.of(ANA, LUIS));
+
+        assertEquals(Map.of(ANA, new DatosUsuario("Ana Pérez", "ana@escuelaing.edu.co"),
+                LUIS, new DatosUsuario("Luis Rojas", null)), datos);
+    }
+
+    /**
      * Los usuarios que MS01 no encontró no aparecen en el mapa
      */
     @Test

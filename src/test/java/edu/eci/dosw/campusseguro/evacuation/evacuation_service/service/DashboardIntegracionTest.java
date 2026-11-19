@@ -30,6 +30,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.PoblacionObjetivoClient;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.DatosUsuario;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.UsuarioNombresClient;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.ZonasBrigadistaClient;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.ZonasBrigadistaClient.ZonasAsignadas;
@@ -118,16 +119,17 @@ class DashboardIntegracionTest {
     private final RequesterIdentity brigadista = IdentidadesDePrueba.identidad(BRIGADISTA, "BRIGADISTA");
 
     /**
-     * Los nombres que entrega MS01 son "Usuario " más el inicio del id, para comprobar que se asocian a la persona
-     * correcta
+     * Los nombres que entrega MS01 son "Usuario " más el inicio del id, y el correo, ese inicio con el dominio
+     * institucional, para comprobar que se asocian a la persona correcta
      */
     @BeforeEach
     void simularNombresDeMs01() {
-        when(nombres.nombresDe(any())).thenAnswer(invocacion -> {
+        when(nombres.datosDe(any())).thenAnswer(invocacion -> {
             Collection<UUID> ids = invocacion.getArgument(0);
-            Map<UUID, String> resultado = new HashMap<>();
+            Map<UUID, DatosUsuario> resultado = new HashMap<>();
             for (UUID id : ids) {
-                resultado.put(id, "Usuario " + id.toString().substring(0, 8));
+                String inicio = id.toString().substring(0, 8);
+                resultado.put(id, new DatosUsuario("Usuario " + inicio, inicio + "@escuelaing.edu.co"));
             }
             return resultado;
         });
@@ -425,6 +427,7 @@ class DashboardIntegracionTest {
         assertEquals(ultimo.getRegistradoEn(), pagina.contenido().get(0).fechaHora());
         assertEquals(vigenteDeAna.getRegistradoEn(), pagina.contenido().get(1).fechaHora());
         assertEquals("Usuario 00000003", pagina.contenido().get(0).nombre());
+        assertEquals("00000003@escuelaing.edu.co", pagina.contenido().get(0).correo());
         assertEquals("Usuario 00000001", pagina.contenido().get(1).nombre());
     }
 
@@ -574,6 +577,7 @@ class DashboardIntegracionTest {
         assertEquals(List.of(usuario(5), usuario(6)),
                 pendientes.contenido().stream().map(Pendiente::usuarioId).toList());
         assertEquals("Usuario 00000005", pendientes.contenido().get(0).nombre());
+        assertEquals("00000005@escuelaing.edu.co", pendientes.contenido().get(0).correo());
         assertEquals(2, pendientes.totalElementos());
         assertEquals(6, pendientes.totalElementos() + consolidado.totalReportados());
     }
