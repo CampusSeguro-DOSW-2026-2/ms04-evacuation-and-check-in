@@ -353,10 +353,15 @@ class EstadoEventoIntegracionTest {
         enviar("EN_EJECUCION", null).andExpect(status().isOk());
 
         verify(auditoria).recordSystem(eq(AuditAction.CAMBIO_ESTADO_EVENTO), eq(AuditResult.EXITO),
-                eq("evento:" + evento), eq("origen=ms06 NUEVO->PROGRAMADO"), org.mockito.ArgumentMatchers.any());
+                eq("evento:" + evento), eq("origen=ms06 NUEVO->PROGRAMADO"), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.argThat(c -> evento.equals(c.eventoId()) && c.simulacro() != null));
         verify(auditoria).recordSystem(eq(AuditAction.CAMBIO_ESTADO_EVENTO), eq(AuditResult.EXITO),
                 eq("evento:" + evento), eq("origen=ms06 PROGRAMADO->EN_EJECUCION"),
-                org.mockito.ArgumentMatchers.any());
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.argThat(c -> evento.equals(c.eventoId()) && c.simulacro() != null
+                        && "PROGRAMADO".equals(c.atributos().get("estado_anterior"))
+                        && "EN_EJECUCION".equals(c.atributos().get("estado_nuevo"))
+                        && "ms06".equals(c.atributos().get("servicio_origen"))));
     }
 
     @Test
@@ -367,9 +372,11 @@ class EstadoEventoIntegracionTest {
         enviar("PROGRAMADO", null).andExpect(status().isBadRequest());
 
         verify(auditoria).recordSystem(eq(AuditAction.CAMBIO_ESTADO_EVENTO), eq(AuditResult.FALLO),
-                eq("evento:" + evento), eq("origen=ms06 CONFLICTO"), org.mockito.ArgumentMatchers.any());
+                eq("evento:" + evento), eq("origen=ms06 CONFLICTO"), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.argThat(c -> evento.equals(c.eventoId()) && c.simulacro() != null));
         verify(auditoria).recordSystem(eq(AuditAction.CAMBIO_ESTADO_EVENTO), eq(AuditResult.FALLO),
-                eq("evento:" + evento), eq("origen=ms06 VALIDACION"), org.mockito.ArgumentMatchers.any());
+                eq("evento:" + evento), eq("origen=ms06 VALIDACION"), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.argThat(c -> evento.equals(c.eventoId()) && c.simulacro() != null));
     }
 
     @Test

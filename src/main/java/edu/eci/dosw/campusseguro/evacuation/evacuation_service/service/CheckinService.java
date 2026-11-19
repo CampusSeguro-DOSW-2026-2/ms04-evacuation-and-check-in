@@ -1,6 +1,7 @@
 package edu.eci.dosw.campusseguro.evacuation.evacuation_service.service;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -12,6 +13,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.audit.AuditAction;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.audit.AuditContext;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.audit.AuditRecorder;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.audit.AuditResult;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.PuntoEncuentro;
@@ -125,40 +127,55 @@ public class CheckinService {
 
     /**
      * Auditoría de un check-in aceptado: REGISTRO_CHECKIN si es el primero del usuario en el evento;
-     * CAMBIO_ESTADO_CHECKIN con el estado anterior y el nuevo si lo cambia, o con SIN_CAMBIO si repite el vigente
+     * CAMBIO_ESTADO_CHECKIN con el estado anterior y el nuevo si lo cambia, o con SIN_CAMBIO si repite el vigente.
+     * Lleva el evento y los atributos que MS08 usa en sus indicadores (Estándares, sección 12): {@code estado},
+     * {@code punto_encuentro_id} con SAFE, {@code ubicacion_tipo} y {@code ubicacion_id} con NEEDS_ASSISTANCE y
+     * {@code estado_anterior} en un cambio (catálogo de MS04 en la página de MS08 de la wiki)
      */
     private void auditarExito(Registro registro, RequesterIdentity requester, String correlationId) {
-        String recurso = AuditRecorder.checkinResource(registro.checkin().getId());
+        Checkin checkin = registro.checkin();
+        String recurso = AuditRecorder.checkinResource(checkin.getId());
+        AuditContext contexto = new AuditContext(checkin.getEventoId(), registro.simulacro(), Map.of())
+                .con("estado", checkin.getEstado())
+                .con("punto_encuentro_id", checkin.getPuntoEncuentroId())
+                .con("ubicacion_tipo", checkin.getUbicacionTipo())
+                .con("ubicacion_id", checkin.getUbicacionId());
         if (registro.anterior() == null) {
             auditoria.recordAs(AuditAction.REGISTRO_CHECKIN, AuditResult.EXITO, requester, recurso,
-                    registro.checkin().getEstado().name(), correlationId);
+                    checkin.getEstado().name(), correlationId, contexto);
             return;
         }
-        String detalle = registro.anterior() == registro.checkin()
+        String detalle = registro.anterior() == checkin
                 ? SIN_CAMBIO
-                : registro.anterior().getEstado().name() + "->" + registro.checkin().getEstado().name();
+                : registro.anterior().getEstado().name() + "->" + checkin.getEstado().name();
         auditoria.recordAs(AuditAction.CAMBIO_ESTADO_CHECKIN, AuditResult.EXITO, requester, recurso, detalle,
-                correlationId);
+                correlationId, contexto.con("estado_anterior", registro.anterior().getEstado()));
     }
 
     /**
      * Auditoría de un check-in rechazado: el recurso es el evento, porque no se creó check-in, y el detalle es el
      * código del error. La acción es CAMBIO_ESTADO_CHECKIN si el usuario ya tenía estado vigente en el evento y
-     * REGISTRO_CHECKIN si no. Nunca lanza, para no tapar el error original
+     * REGISTRO_CHECKIN si no. Si el evento existe, el evento de auditoría lo identifica con su tipo; si no, va sin
+     * evento. Nunca lanza, para no tapar el error original
      */
     private void auditarFallo(UUID eventoId, RequesterIdentity requester, RuntimeException error,
             String correlationId) {
         String detalle = error instanceof ApiException api ? api.getCode().getCode() : ErrorCode.INTERNAL_ERROR.getCode();
         AuditAction accion = AuditAction.REGISTRO_CHECKIN;
+        AuditContext contexto = AuditContext.NINGUNO;
         try {
-            if (eventoId != null && checkins.buscarVigente(eventoId, requester.userId()).isPresent()) {
-                accion = AuditAction.CAMBIO_ESTADO_CHECKIN;
+            if (eventoId != null) {
+                contexto = eventos.findById(eventoId).map(AuditContext::de).orElse(AuditContext.NINGUNO);
+                if (checkins.buscarVigente(eventoId, requester.userId()).isPresent()) {
+                    accion = AuditAction.CAMBIO_ESTADO_CHECKIN;
+                }
             }
         } catch (RuntimeException e) {
-            log.warn("No se pudo leer el estado vigente para auditar el check-in fallido: {}", e.toString());
+            log.warn("No se pudo leer el evento o el estado vigente para auditar el check-in fallido: {}",
+                    e.toString());
         }
         auditoria.recordAs(accion, AuditResult.FALLO, requester, AuditRecorder.eventResource(eventoId), detalle,
-                correlationId);
+                correlationId, contexto);
     }
 
     /**
@@ -169,13 +186,13 @@ public class CheckinService {
      */
     private Registro guardar(UUID eventoId, CheckinRequest request, RequesterIdentity requester) {
         checkins.bloquearUsuarioEnEvento(eventoId, requester.userId());
-        verificarEvento(eventos.buscarParaCheckin(eventoId), requester);
+        boolean simulacro = verificarEvento(eventos.buscarParaCheckin(eventoId), requester).isSimulacro();
         Optional<Checkin> vigente = checkins.buscarVigente(eventoId, requester.userId());
         if (vigente.isPresent() && repiteElVigente(vigente.get(), request)) {
             SolicitudAsistencia solicitud = vigente.get().getEstado() == EstadoCheckin.NEEDS_ASSISTANCE
                     ? solicitudes.buscar(eventoId, requester.userId()).orElse(null)
                     : null;
-            return new Registro(vigente.get(), false, vigente.get(), solicitud, false);
+            return new Registro(vigente.get(), false, vigente.get(), solicitud, false, simulacro);
         }
         Checkin nuevo = checkins.save(nuevoCheckin(eventoId, request, requester));
         checkins.flush();
@@ -188,9 +205,9 @@ public class CheckinService {
                         requester.permisosComoCabecera());
             }
             return new Registro(nuevo, vigente.isEmpty(), vigente.orElse(null), solicitud.solicitud(),
-                    solicitud.nueva());
+                    solicitud.nueva(), simulacro);
         }
-        return new Registro(nuevo, vigente.isEmpty(), vigente.orElse(null), null, false);
+        return new Registro(nuevo, vigente.isEmpty(), vigente.orElse(null), null, false, simulacro);
     }
 
     /**
@@ -267,8 +284,9 @@ public class CheckinService {
      * @param anterior estado vigente antes del reporte; null en el primer check-in
      * @param solicitud solicitud de asistencia del usuario en el evento si el check-in es NEEDS_ASSISTANCE
      * @param solicitudNueva true si la solicitud se creó con este check-in y hay que enviarla a MS05
+     * @param simulacro true si el evento es simulacro, false si es emergencia real (para la auditoría)
      */
     private record Registro(Checkin checkin, boolean creado, Checkin anterior, SolicitudAsistencia solicitud,
-            boolean solicitudNueva) {
+            boolean solicitudNueva, boolean simulacro) {
     }
 }

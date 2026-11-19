@@ -375,7 +375,7 @@ class DashboardIntegracionTest {
         requiereAsistencia(evento.getId(), usuario(8), TipoUbicacion.ESPACIO, EDIFICIO_1);
         sinUbicacion(evento.getId(), usuario(9), EstadoCheckin.EVACUATING);
         sinUbicacion(evento.getId(), usuario(10), EstadoCheckin.OFF_CAMPUS);
-        when(zonasBrigadista.zonasDe(brigadista))
+        when(zonasBrigadista.zonasDe(brigadista, evento.getId()))
                 .thenReturn(new ZonasAsignadas(Set.of(EDIFICIO_1), Set.of(ESPACIO_1), Set.of(PUNTO_A)));
 
         Consolidado consolidado = service.consolidado(evento.getId(), brigadista);
@@ -396,7 +396,7 @@ class DashboardIntegracionTest {
         Evento evento = evento(EstadoEvento.EN_EJECUCION);
         aSalvo(evento.getId(), usuario(1), PUNTO_A);
         requiereAsistencia(evento.getId(), usuario(2), TipoUbicacion.EDIFICIO, EDIFICIO_1);
-        when(zonasBrigadista.zonasDe(brigadista)).thenReturn(new ZonasAsignadas(Set.of(), Set.of(), Set.of()));
+        when(zonasBrigadista.zonasDe(brigadista, evento.getId())).thenReturn(new ZonasAsignadas(Set.of(), Set.of(), Set.of()));
 
         Consolidado consolidado = service.consolidado(evento.getId(), brigadista);
 
@@ -515,7 +515,7 @@ class DashboardIntegracionTest {
         requiereAsistencia(evento.getId(), usuario(4), TipoUbicacion.EDIFICIO, EDIFICIO_2);
         sinUbicacion(evento.getId(), usuario(5), EstadoCheckin.EVACUATING);
         sinUbicacion(evento.getId(), usuario(6), EstadoCheckin.OFF_CAMPUS);
-        when(zonasBrigadista.zonasDe(brigadista))
+        when(zonasBrigadista.zonasDe(brigadista, evento.getId()))
                 .thenReturn(new ZonasAsignadas(Set.of(EDIFICIO_1), Set.of(), Set.of(PUNTO_A)));
 
         PageResponse<CheckinResumen> todas = service.personas(evento.getId(), null, null, 0, 20, brigadista);
@@ -822,7 +822,7 @@ class DashboardIntegracionTest {
         requiereAsistencia(evento.getId(), usuario(5), TipoUbicacion.PUNTO_ENCUENTRO, PUNTO_A);
         aSalvo(evento.getId(), usuario(6), PUNTO_A);
         requiereAsistencia(evento.getId(), usuario(7), TipoUbicacion.ESPACIO, EDIFICIO_1);
-        when(zonasBrigadista.zonasDe(brigadista))
+        when(zonasBrigadista.zonasDe(brigadista, evento.getId()))
                 .thenReturn(new ZonasAsignadas(Set.of(EDIFICIO_1), Set.of(ESPACIO_1), Set.of(PUNTO_A)));
 
         PageResponse<PersonaAsistencia> delBrigadista = service.asistencia(evento.getId(), 0, 20, brigadista);
@@ -843,7 +843,7 @@ class DashboardIntegracionTest {
     void asistenciaDelBrigadistaSinZonasEsVacia() {
         Evento evento = evento(EstadoEvento.EN_EJECUCION);
         requiereAsistencia(evento.getId(), usuario(1), TipoUbicacion.EDIFICIO, EDIFICIO_1);
-        when(zonasBrigadista.zonasDe(brigadista)).thenReturn(new ZonasAsignadas(Set.of(), Set.of(), Set.of()));
+        when(zonasBrigadista.zonasDe(brigadista, evento.getId())).thenReturn(new ZonasAsignadas(Set.of(), Set.of(), Set.of()));
 
         PageResponse<PersonaAsistencia> pagina = service.asistencia(evento.getId(), 0, 20, brigadista);
 

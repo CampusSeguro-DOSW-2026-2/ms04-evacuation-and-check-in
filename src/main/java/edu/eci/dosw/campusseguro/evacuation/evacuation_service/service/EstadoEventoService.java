@@ -3,14 +3,18 @@ package edu.eci.dosw.campusseguro.evacuation.evacuation_service.service;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.audit.AuditAction;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.audit.AuditContext;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.audit.AuditRecorder;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.audit.AuditResult;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.EstadoEventoRequest;
@@ -44,6 +48,8 @@ public class EstadoEventoService {
     public static final String TRANSICION_NO_PERMITIDA = "La transición de estado no está permitida.";
     /** Estado anterior en el detalle de auditoría cuando el evento no existía */
     public static final String NUEVO = "NUEVO";
+
+    private static final Logger log = LoggerFactory.getLogger(EstadoEventoService.class);
 
     private final EventoRepository eventos;
     private final AuditRecorder auditoria;
@@ -86,13 +92,17 @@ public class EstadoEventoService {
         } catch (RuntimeException e) {
             String codigo = e instanceof ApiException api ? api.getCode().getCode() : ErrorCode.INTERNAL_ERROR.getCode();
             auditoria.recordSystem(AuditAction.CAMBIO_ESTADO_EVENTO, AuditResult.FALLO,
-                    AuditRecorder.eventResource(eventoId), detalle(servicio, codigo), correlationId);
+                    AuditRecorder.eventResource(eventoId), detalle(servicio, codigo), correlationId,
+                    contextoFallido(eventoId, request).con("servicio_origen", origen(servicio)));
             throw e;
         }
         String anterior = cambio.anterior() == null ? NUEVO : cambio.anterior().name();
         auditoria.recordSystem(AuditAction.CAMBIO_ESTADO_EVENTO, AuditResult.EXITO,
                 AuditRecorder.eventResource(eventoId),
-                detalle(servicio, anterior + "->" + cambio.evento().getEstado().name()), correlationId);
+                detalle(servicio, anterior + "->" + cambio.evento().getEstado().name()), correlationId,
+                AuditContext.de(cambio.evento()).con("estado_anterior", anterior)
+                        .con("estado_nuevo", cambio.evento().getEstado())
+                        .con("servicio_origen", origen(servicio)));
         return new ResultadoEstadoEvento(EventoMapper.aInterno(cambio.evento()), cambio.anterior() == null);
     }
 
@@ -217,8 +227,31 @@ public class EstadoEventoService {
     }
 
     /** Detalle de auditoría: el servicio de origen y los estados, o el código del error (RNF-MS04-17) */
+    /**
+     * Evento de un cambio rechazado para la auditoría: el tipo guardado si el evento ya existe; si no, el que trae la
+     * petición; sin ninguno de los dos, la auditoría va sin evento (tipo_evento es obligatorio con evento_id)
+     */
+    private AuditContext contextoFallido(UUID eventoId, EstadoEventoRequest request) {
+        if (eventoId == null) {
+            return AuditContext.NINGUNO;
+        }
+        try {
+            Optional<Evento> guardado = eventos.findById(eventoId);
+            if (guardado.isPresent()) {
+                return AuditContext.de(guardado.get());
+            }
+        } catch (RuntimeException e) {
+            log.warn("No se pudo leer el evento {} para auditar el cambio rechazado: {}", eventoId, e.toString());
+        }
+        Boolean simulacro = request == null ? null : request.simulacro();
+        return simulacro == null ? AuditContext.NINGUNO : new AuditContext(eventoId, simulacro, Map.of());
+    }
+
     private static String detalle(String servicio, String cambio) {
-        String origen = servicio == null ? "desconocido" : servicio.trim().toLowerCase();
-        return "origen=" + origen + " " + cambio;
+        return "origen=" + origen(servicio) + " " + cambio;
+    }
+
+    private static String origen(String servicio) {
+        return servicio == null ? "desconocido" : servicio.trim().toLowerCase();
     }
 }

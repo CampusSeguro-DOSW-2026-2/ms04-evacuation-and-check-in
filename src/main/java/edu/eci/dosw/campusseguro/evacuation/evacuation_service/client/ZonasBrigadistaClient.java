@@ -12,13 +12,15 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.Requeste
 public interface ZonasBrigadistaClient {
 
     /**
-     * Zonas asignadas al brigadista, pedidas a MS05 en su nombre
+     * Zonas asignadas al brigadista en un evento, pedidas a MS05 en su nombre. Las asignaciones de otros eventos no
+     * cuentan
      *
      * @param brigadista identidad del brigadista que consulta
+     * @param eventoId evento que se consulta
      * @return los edificios, espacios y puntos de encuentro (ids de MS02) que le corresponden
      * @throws ApiException 503 DEPENDENCIA_NO_DISPONIBLE si MS05 no entrega las zonas
      */
-    ZonasAsignadas zonasDe(RequesterIdentity brigadista);
+    ZonasAsignadas zonasDe(RequesterIdentity brigadista, UUID eventoId);
 
     /**
      * Ubicaciones de MS02 que cubren las zonas de un brigadista; MS05 ya expande cada zona en sus ubicaciones

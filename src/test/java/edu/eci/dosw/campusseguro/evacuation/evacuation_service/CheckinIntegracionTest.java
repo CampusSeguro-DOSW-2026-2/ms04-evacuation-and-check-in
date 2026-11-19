@@ -430,6 +430,11 @@ class CheckinIntegracionTest {
             assertEquals(USUARIO, e.usuarioId());
             assertEquals("ESTUDIANTE", e.usuarioRoles());
             assertEquals(CORRELATION_ID, e.correlationId());
+            // Estándares §12: el evento, su tipo y los atributos que MS08 usa en sus indicadores
+            assertEquals(evento.getId(), e.contexto().eventoId());
+            assertEquals(evento.isSimulacro() ? "SIMULACRO" : "REAL", e.contexto().tipoEvento());
+            assertEquals("SAFE", e.contexto().atributos().get("estado"));
+            assertEquals(PUNTO_A.toString(), e.contexto().atributos().get("punto_encuentro_id"));
         }
 
         @Test
@@ -442,6 +447,9 @@ class CheckinIntegracionTest {
             assertEquals(AuditAction.CAMBIO_ESTADO_CHECKIN, e.accion());
             assertEquals(AuditResult.EXITO, e.resultado());
             assertEquals("EVACUATING->SAFE", e.detalle());
+            assertEquals(evento.getId(), e.contexto().eventoId());
+            assertEquals("SAFE", e.contexto().atributos().get("estado"));
+            assertEquals("EVACUATING", e.contexto().atributos().get("estado_anterior"));
         }
 
         @Test
@@ -465,6 +473,8 @@ class CheckinIntegracionTest {
             assertEquals(AuditResult.FALLO, e.resultado());
             assertEquals("evento:" + evento.getId(), e.recursoAfectado());
             assertEquals("REGLA_NEGOCIO", e.detalle());
+            assertEquals(evento.getId(), e.contexto().eventoId());
+            assertEquals(evento.isSimulacro() ? "SIMULACRO" : "REAL", e.contexto().tipoEvento());
         }
 
         @Test

@@ -304,7 +304,7 @@ class DashboardServiceTest {
         ZonasAsignadas zonas = new ZonasAsignadas(Set.of(EDIFICIO), Set.of(ESPACIO), Set.of(PUNTO_A));
         RequesterIdentity brigadista = con("BRIGADISTA");
         when(eventos.findById(EVENTO)).thenReturn(Optional.of(evento(EstadoEvento.EN_EJECUCION)));
-        when(zonasBrigadista.zonasDe(brigadista)).thenReturn(zonas);
+        when(zonasBrigadista.zonasDe(brigadista, EVENTO)).thenReturn(zonas);
         when(checkins.contarVigentes(EVENTO, true, Set.of(PUNTO_A), Set.of(EDIFICIO), Set.of(ESPACIO)))
                 .thenReturn(List.of(new Fila("SAFE", PUNTO_A, 6), new Fila("NEEDS_ASSISTANCE", null, 1)));
 
@@ -341,12 +341,12 @@ class DashboardServiceTest {
                 Set.of("ms04:dashboard:read"));
         ZonasAsignadas zonas = new ZonasAsignadas(Set.of(), Set.of(), Set.of(PUNTO_A));
         when(eventos.findById(EVENTO)).thenReturn(Optional.of(evento(EstadoEvento.EN_EJECUCION)));
-        when(zonasBrigadista.zonasDe(jefeDePiso)).thenReturn(zonas);
+        when(zonasBrigadista.zonasDe(jefeDePiso, EVENTO)).thenReturn(zonas);
         when(checkins.contarVigentes(EVENTO, true, Set.of(PUNTO_A), Set.of(), Set.of())).thenReturn(List.of());
 
         service.consolidado(EVENTO, jefeDePiso);
 
-        verify(zonasBrigadista).zonasDe(jefeDePiso);
+        verify(zonasBrigadista).zonasDe(jefeDePiso, EVENTO);
     }
 
     /**
@@ -372,7 +372,7 @@ class DashboardServiceTest {
     void consolidadoDeBrigadistaConUnRolDeLaComunidadSigueRestringido() {
         RequesterIdentity brigadista = con("BRIGADISTA", "ESTUDIANTE");
         when(eventos.findById(EVENTO)).thenReturn(Optional.of(evento(EstadoEvento.EN_EJECUCION)));
-        when(zonasBrigadista.zonasDe(brigadista)).thenReturn(new ZonasAsignadas(NADA, NADA, NADA));
+        when(zonasBrigadista.zonasDe(brigadista, EVENTO)).thenReturn(new ZonasAsignadas(NADA, NADA, NADA));
         when(checkins.contarVigentes(EVENTO, true, NADA, NADA, NADA)).thenReturn(List.of());
 
         Consolidado consolidado = service.consolidado(EVENTO, brigadista);
@@ -387,7 +387,7 @@ class DashboardServiceTest {
     void consolidadoDelBrigadistaSinZonasDeMs05Responde503() {
         RequesterIdentity brigadista = con("BRIGADISTA");
         when(eventos.findById(EVENTO)).thenReturn(Optional.of(evento(EstadoEvento.EN_EJECUCION)));
-        when(zonasBrigadista.zonasDe(brigadista)).thenThrow(ApiException.dependenciaNoDisponible());
+        when(zonasBrigadista.zonasDe(brigadista, EVENTO)).thenThrow(ApiException.dependenciaNoDisponible());
 
         ApiException error = assertThrows(ApiException.class, () -> service.consolidado(EVENTO, brigadista));
 
@@ -513,7 +513,7 @@ class DashboardServiceTest {
     void personasDelBrigadistaListaSoloSusZonas() {
         RequesterIdentity brigadista = con("BRIGADISTA");
         when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(zonasBrigadista.zonasDe(brigadista))
+        when(zonasBrigadista.zonasDe(brigadista, EVENTO))
                 .thenReturn(new ZonasAsignadas(Set.of(EDIFICIO), Set.of(ESPACIO), Set.of(PUNTO_A)));
         when(checkins.buscarVigentes(EVENTO, null, null, true, Set.of(PUNTO_A), Set.of(EDIFICIO), Set.of(ESPACIO),
                 PageRequest.of(0, 20)))
@@ -534,7 +534,7 @@ class DashboardServiceTest {
     void personasDelBrigadistaSinZonasDeMs05Responde503() {
         RequesterIdentity brigadista = con("BRIGADISTA");
         when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(zonasBrigadista.zonasDe(brigadista)).thenThrow(ApiException.dependenciaNoDisponible());
+        when(zonasBrigadista.zonasDe(brigadista, EVENTO)).thenThrow(ApiException.dependenciaNoDisponible());
 
         ApiException error = assertThrows(ApiException.class,
                 () -> service.personas(EVENTO, null, null, 0, 20, brigadista));
@@ -563,7 +563,7 @@ class DashboardServiceTest {
         assertEquals(0, respuesta.totalElementos());
         assertEquals(0, respuesta.totalPaginas());
         verify(nombres).datosDe(List.of());
-        verify(zonasBrigadista, never()).zonasDe(any());
+        verify(zonasBrigadista, never()).zonasDe(any(), any());
     }
 
     // ---------------------------------------------------------------- asistencia
@@ -717,7 +717,7 @@ class DashboardServiceTest {
         assertEquals(0, respuesta.totalElementos());
         assertEquals(0, respuesta.totalPaginas());
         verify(solicitudes, never()).findByEventoIdAndUsuarioIdIn(any(), any());
-        verify(zonasBrigadista, never()).zonasDe(any());
+        verify(zonasBrigadista, never()).zonasDe(any(), any());
     }
 
     /**
@@ -749,7 +749,7 @@ class DashboardServiceTest {
     void asistenciaDelBrigadistaListaSoloSusZonas() {
         RequesterIdentity brigadista = con("BRIGADISTA");
         when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(zonasBrigadista.zonasDe(brigadista))
+        when(zonasBrigadista.zonasDe(brigadista, EVENTO))
                 .thenReturn(new ZonasAsignadas(Set.of(EDIFICIO), Set.of(ESPACIO), Set.of(PUNTO_A)));
         when(checkins.buscarVigentesConAsistencia(EVENTO, true, Set.of(PUNTO_A), Set.of(EDIFICIO), Set.of(ESPACIO),
                 PageRequest.of(0, 20)))
@@ -779,7 +779,7 @@ class DashboardServiceTest {
 
         service.asistencia(EVENTO, 0, 20, con("BRIGADISTA", otro));
 
-        verify(zonasBrigadista, never()).zonasDe(any());
+        verify(zonasBrigadista, never()).zonasDe(any(), any());
     }
 
     /**
@@ -789,7 +789,7 @@ class DashboardServiceTest {
     void asistenciaDelBrigadistaSinZonasDeMs05Responde503() {
         RequesterIdentity brigadista = con("BRIGADISTA");
         when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(zonasBrigadista.zonasDe(brigadista)).thenThrow(ApiException.dependenciaNoDisponible());
+        when(zonasBrigadista.zonasDe(brigadista, EVENTO)).thenThrow(ApiException.dependenciaNoDisponible());
 
         ApiException error = assertThrows(ApiException.class, () -> service.asistencia(EVENTO, 0, 20, brigadista));
 
