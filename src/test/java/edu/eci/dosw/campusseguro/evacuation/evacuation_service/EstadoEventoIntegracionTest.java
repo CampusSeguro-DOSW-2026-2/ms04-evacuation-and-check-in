@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -286,6 +287,24 @@ class EstadoEventoIntegracionTest {
                         .value(EstadoEventoValidator.ROL_NO_VALIDO));
 
         assertFalse(eventos.existsById(evento));
+    }
+
+    /** El escenario trae los nombres de MS02 (RN-MS04-24): hasta 100 caracteres se guardan; más, 400 */
+    @Test
+    void elEscenarioAceptaNombresDeHasta100Caracteres() throws Exception {
+        String cien = "Edificio ".repeat(12).substring(0, 100);
+        String cuerpo = cuerpo(evento, true, "PROGRAMADO", INICIO);
+
+        enviar(cuerpo.replace("\"Bloque A\"", "\"" + cien + "x\""))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errores[?(@.campo=='escenario.edificios')].mensaje")
+                        .value(EstadoEventoValidator.EDIFICIO_NO_VALIDO));
+        assertFalse(eventos.existsById(evento));
+
+        enviar(cuerpo.replace("\"Bloque A\"", "\"" + cien + "\"").replace("\"Zona norte\"", "\"" + cien + "\""))
+                .andExpect(status().isCreated());
+        assertEquals(List.of(cien), guardado().getEscenarioEdificios());
+        assertEquals(List.of(cien), guardado().getEscenarioZonas());
     }
 
     @Test
