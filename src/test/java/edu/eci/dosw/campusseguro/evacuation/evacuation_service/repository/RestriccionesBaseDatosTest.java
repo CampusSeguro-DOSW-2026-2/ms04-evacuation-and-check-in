@@ -144,6 +144,16 @@ class RestriccionesBaseDatosTest {
                 "ARRAY['ADMIN', 'JEFE_DE_PISO_EDIFICIO_NORTE_AB']::VARCHAR(30)[]")));
     }
 
+    /** Escenario con nombres de MS02 (database/007): un edificio o una zona de hasta 100 caracteres se guarda */
+    @Test
+    void unEscenarioConNombresDeHasta100CaracteresSeGuarda() {
+        String nombre = "E".repeat(100);
+        assertDoesNotThrow(() -> ejecutar("INSERT INTO eventos (id, nombre, simulacro, estado, fecha_inicio, "
+                + "roles_convocados, escenario_edificios, escenario_zonas) VALUES ('" + UUID.randomUUID()
+                + "', 'x', true, 'PROGRAMADO', now(), ARRAY['ESTUDIANTE'], ARRAY['" + nombre + "'], ARRAY['"
+                + nombre + "'])"));
+    }
+
     @Test
     void unEventoCoherenteSeGuarda() {
         assertDoesNotThrow(() -> ejecutar(insertarEvento(UUID.randomUUID().toString(), true, "FINALIZADO",

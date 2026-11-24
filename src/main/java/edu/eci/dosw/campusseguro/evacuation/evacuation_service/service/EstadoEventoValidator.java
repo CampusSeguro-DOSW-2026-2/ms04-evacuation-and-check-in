@@ -40,13 +40,13 @@ public final class EstadoEventoValidator {
     public static final String FALTA_FECHA = "La fecha de inicio es obligatoria para programar el evento.";
     public static final String FECHA_EN_BORRADOR = "Un evento en borrador no lleva fecha de inicio.";
     public static final String FECHA_NO_VALIDA = "Fecha de inicio no válida (ISO-8601 con desfase horario).";
-    public static final String EDIFICIO_NO_VALIDO = "Edificio no válido (1 a 50 caracteres).";
-    public static final String ZONA_NO_VALIDA = "Zona no válida (1 a 50 caracteres).";
+    public static final String EDIFICIO_NO_VALIDO = "Edificio no válido (1 a 100 caracteres).";
+    public static final String ZONA_NO_VALIDA = "Zona no válida (1 a 100 caracteres).";
     public static final String FALTAN_ROLES = "Indique al menos un rol convocado.";
     public static final String ROL_NO_VALIDO = "Rol convocado no válido.";
 
     static final int MAX_NOMBRE = 150;
-    static final int MAX_ESCENARIO = 50;
+    static final int MAX_ESCENARIO = 100;
 
     /**
      * Formato de un nombre de rol (Estándares de Integración, sección 3): mayúsculas, dígitos y guion bajo, empieza con
