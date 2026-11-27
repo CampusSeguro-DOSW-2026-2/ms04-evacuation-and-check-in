@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SpotBugs exclusions of MS04. Only EI_EXPOSE_REP and EI_EXPOSE_REP2 are excluded, and only in the classes where
+  sharing the reference is the intended design. Any other class that exposes a mutable object is still reported.
+-->
+<FindBugsFilter xmlns="https://github.com/spotbugs/filter/3.0.0"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="https://github.com/spotbugs/filter/3.0.0 https://raw.githubusercontent.com/spotbugs/spotbugs/3.1.0/spotbugs/etc/findbugsfilter.xsd">
+
+    <!-- Bean injected by Spring: a shared singleton by design -->
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+        <Class name="edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.Ms01PoblacionObjetivoClient"/>
+        <Field name="jsonMapper"/>
+    </Match>
+
+    <!-- Contract DTOs: pure records without constructors, built and serialized within the same request -->
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Package name="edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto"/>
+    </Match>
+
+    <!-- Results that carry the JPA entity of the assistance request: the entity is mutable by design -->
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Or>
+            <Class name="edu.eci.dosw.campusseguro.evacuation.evacuation_service.service.SolicitudAsistenciaService$EnvioSolicitud"/>
+            <Class name="edu.eci.dosw.campusseguro.evacuation.evacuation_service.service.SolicitudAsistenciaService$RegistroSolicitud"/>
+        </Or>
+    </Match>
+
+    <!-- AuditContext keeps a read-only copy of its attributes (Collections.unmodifiableMap over a new LinkedHashMap,
+         which keeps the order sent to MS08); SpotBugs does not recognize that copy -->
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP"/>
+        <Class name="edu.eci.dosw.campusseguro.evacuation.evacuation_service.audit.AuditContext"/>
+        <Field name="atributos"/>
+    </Match>
+</FindBugsFilter>

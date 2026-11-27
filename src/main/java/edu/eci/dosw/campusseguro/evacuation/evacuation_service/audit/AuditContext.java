@@ -29,7 +29,11 @@ public record AuditContext(UUID eventoId, Boolean simulacro, Map<String, Object>
         if ((eventoId == null) != (simulacro == null)) {
             throw new IllegalArgumentException("evento_id y tipo_evento van juntos");
         }
-        atributos = atributos == null ? Map.of() : Collections.unmodifiableMap(new LinkedHashMap<>(atributos));
+        if (atributos == null) {
+            atributos = Map.of();
+        } else {
+            atributos = Collections.unmodifiableMap(new LinkedHashMap<>(atributos));
+        }
     }
 
     /**

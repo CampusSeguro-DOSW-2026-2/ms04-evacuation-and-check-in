@@ -18,6 +18,8 @@
 		<java.version>21</java.version>
 		<springdoc.version>3.1.0</springdoc.version>
 		<jacoco.version>0.8.15</jacoco.version>
+		<pmd.plugin.version>3.28.0</pmd.plugin.version>
+		<spotbugs.plugin.version>4.10.5.0</spotbugs.plugin.version>
 	</properties>
 
 	<dependencies>
@@ -124,6 +126,48 @@
 						<phase>verify</phase>
 						<goals>
 							<goal>report</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
+			<!-- Local static analysis: PMD (code rules) and SpotBugs (bytecode bugs). Report only, never fail the build -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-pmd-plugin</artifactId>
+				<version>${pmd.plugin.version}</version>
+				<configuration>
+					<targetJdk>${java.version}</targetJdk>
+					<includeTests>false</includeTests>
+					<linkXRef>false</linkXRef>
+					<failOnViolation>false</failOnViolation>
+					<printFailingErrors>true</printFailingErrors>
+				</configuration>
+				<executions>
+					<execution>
+						<id>pmd-analysis</id>
+						<phase>verify</phase>
+						<goals>
+							<goal>check</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
+			<plugin>
+				<groupId>com.github.spotbugs</groupId>
+				<artifactId>spotbugs-maven-plugin</artifactId>
+				<version>${spotbugs.plugin.version}</version>
+				<configuration>
+					<effort>Max</effort>
+					<xmlOutput>true</xmlOutput>
+					<failOnError>false</failOnError>
+					<excludeFilterFile>${project.basedir}/spotbugs-exclude.xml</excludeFilterFile>
+				</configuration>
+				<executions>
+					<execution>
+						<id>spotbugs-analysis</id>
+						<phase>verify</phase>
+						<goals>
+							<goal>check</goal>
 						</goals>
 					</execution>
 				</executions>

@@ -30,5 +30,19 @@ public interface ZonasBrigadistaClient {
      * @param puntosEncuentro puntos de encuentro cubiertos
      */
     record ZonasAsignadas(Set<UUID> edificios, Set<UUID> espacios, Set<UUID> puntosEncuentro) {
+
+        /**
+         * Keeps immutable copies of the zones of the brigadier
+         *
+         * @param edificios assigned buildings
+         * @param espacios assigned spaces
+         * @param puntosEncuentro assigned meeting points
+         * @throws NullPointerException if a set or one of its elements is null
+         */
+        public ZonasAsignadas {
+            edificios = Set.copyOf(edificios);
+            espacios = Set.copyOf(espacios);
+            puntosEncuentro = Set.copyOf(puntosEncuentro);
+        }
     }
 }

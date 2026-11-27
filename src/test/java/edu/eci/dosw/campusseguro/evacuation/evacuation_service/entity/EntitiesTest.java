@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -55,8 +56,8 @@ class EntitiesTest {
     }
 
     /**
-     * The lists of an event are copies: a null list is stored as empty and a later change of the original list does
-     * not change the event
+     * The lists of an event are copies: a null list is stored as empty, a later change of the original list does not
+     * change the event and the getters are read-only
      */
     @Test
     void theListsOfAnEventAreCopies() {
@@ -69,6 +70,7 @@ class EntitiesTest {
         roles.add("PROFESOR");
 
         assertEquals(List.of("ESTUDIANTE"), event.getRolesConvocados());
+        assertThrows(UnsupportedOperationException.class, () -> event.getRolesConvocados().add("PROFESOR"));
         assertEquals(List.of(), event.getEscenarioEdificios());
         assertEquals(List.of("Zona norte"), event.getEscenarioZonas());
         event.setRolesConvocados(null);
