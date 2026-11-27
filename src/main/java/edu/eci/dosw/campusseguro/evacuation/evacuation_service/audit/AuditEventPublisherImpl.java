@@ -79,10 +79,12 @@ public class AuditEventPublisherImpl implements AuditEventPublisher {
         if (event.correlationId() != null) {
             request.header(CorrelationIds.HEADER, event.correlationId());
         }
-        // Si la acción la hizo un usuario, se propaga su identidad sin modificarla (Estándares, sección 5)
-        if (event.usuarioId() != null && event.usuarioRoles() != null) {
+        // Si la acción la hizo un usuario, se propaga su identidad sin modificarla (Estándares, sección 5): las tres
+        // cabeceras juntas o ninguna, porque el Gateway responde 400 si falta alguna
+        if (event.usuarioId() != null && event.usuarioRoles() != null && event.usuarioPermisos() != null) {
             request.header(IdentityHeaders.USER_ID, event.usuarioId().toString());
             request.header(IdentityHeaders.USER_ROLE, event.usuarioRoles());
+            request.header(IdentityHeaders.USER_PERMISSION, event.usuarioPermisos());
         }
     }
 
@@ -111,6 +113,7 @@ public class AuditEventPublisherImpl implements AuditEventPublisher {
      */
     static String toJson(AuditEvent event) {
         Map<String, Object> body = new LinkedHashMap<>();
+        body.put("id", event.id().toString());
         body.put("usuario_id", event.usuarioId() == null ? null : event.usuarioId().toString());
         body.put("modulo", MODULE);
         body.put("accion", event.accion().name());
@@ -119,6 +122,9 @@ public class AuditEventPublisherImpl implements AuditEventPublisher {
         body.put("fecha_hora", DateTimeFormatter.ISO_INSTANT.format(event.fecha()));
         body.put("correlation_id", event.correlationId());
         body.put("detalle", event.detalle());
+        body.put("evento_id", event.contexto().eventoId() == null ? null : event.contexto().eventoId().toString());
+        body.put("tipo_evento", event.contexto().tipoEvento());
+        body.put("atributos", event.contexto().atributos().isEmpty() ? null : event.contexto().atributos());
         return Json.write(body);
     }
 

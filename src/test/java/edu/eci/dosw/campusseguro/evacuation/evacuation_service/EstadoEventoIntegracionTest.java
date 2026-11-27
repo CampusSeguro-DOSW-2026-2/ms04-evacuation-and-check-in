@@ -2,16 +2,17 @@ package edu.eci.dosw.campusseguro.evacuation.evacuation_service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -37,6 +38,7 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.Identity
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.service.EstadoEventoService;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.service.EstadoEventoValidator;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.PostgresTestcontainerConfig;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.IdentidadesDePrueba;
 import jakarta.persistence.EntityManager;
 
 /**
@@ -107,7 +109,7 @@ class EstadoEventoIntegracionTest {
 
     private ResultActions checkin() throws Exception {
         return mockMvc.perform(post(BASE + evento + "/checkins")
-                .header(IdentityHeaders.USER_ID, ESTUDIANTE).header(IdentityHeaders.USER_ROLE, "ESTUDIANTE")
+                .header(IdentityHeaders.USER_ID, ESTUDIANTE).header(IdentityHeaders.USER_ROLE, "ESTUDIANTE").header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos("ESTUDIANTE"))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"estado\":\"EVACUATING\"}"));
     }
 
@@ -160,16 +162,30 @@ class EstadoEventoIntegracionTest {
     }
 
     @Test
-    void unEventoQueNoEsSimulacroQuedaEnEjecucionDesdeLaPrimeraLlamada() throws Exception {
-        enviar(cuerpo(evento, false, "PROGRAMADO", null))
+    void unEventoRealSigueLosEstadosQueEnviaMs06() throws Exception {
+        enviar(cuerpo(evento, false, "BORRADOR", null))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.simulacro").value(false))
+                .andExpect(jsonPath("$.estado").value("BORRADOR"))
+                .andExpect(jsonPath("$.checkinHabilitado").value(false));
+        assertNull(guardado().getFechaInicio());
+        checkin().andExpect(status().isConflict());
+
+        enviar(cuerpo(evento, false, "PROGRAMADO", INICIO))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.estado").value("PROGRAMADO"))
+                .andExpect(jsonPath("$.checkinHabilitado").value(false));
+
+        enviar(cuerpo(evento, false, "EN_EJECUCION", null))
+                .andExpect(status().isOk())
                 .andExpect(jsonPath("$.estado").value("EN_EJECUCION"))
                 .andExpect(jsonPath("$.checkinHabilitado").value(true));
-
-        // Sin fechaInicio se toma la fecha/hora de recepción
-        assertNotNull(guardado().getFechaInicio());
         checkin().andExpect(status().isCreated());
+    }
+
+    @Test
+    void unEventoRealProgramadoSinFechaEsInvalido() throws Exception {
+        enviar(cuerpo(evento, false, "PROGRAMADO", null)).andExpect(status().isBadRequest());
     }
 
     @Test
@@ -179,24 +195,8 @@ class EstadoEventoIntegracionTest {
         enviar(cuerpo(evento, false, "FINALIZADO", null))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.estado").value("FINALIZADO"));
-        // Para un evento que no es simulacro, PROGRAMADO equivale a EN_EJECUCION, que no sigue a FINALIZADO
+        // FINALIZADO es definitivo, también para un evento real
         enviar(cuerpo(evento, false, "PROGRAMADO", INICIO)).andExpect(status().isConflict());
-    }
-
-    @Test
-    void unProgramadoDespuesDeFinalizadoEsConflictoYNoModificaNada() throws Exception {
-        llevarA(EstadoEvento.FINALIZADO);
-        Evento antes = guardado();
-
-        enviar("PROGRAMADO", "2026-12-01T10:00:00-05:00")
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.codigo").value("CONFLICTO"))
-                .andExpect(jsonPath("$.mensaje").value(EstadoEventoService.TRANSICION_NO_PERMITIDA));
-
-        Evento despues = guardado();
-        assertEquals(EstadoEvento.FINALIZADO, despues.getEstado());
-        assertEquals(antes.getFechaInicio(), despues.getFechaInicio());
-        assertEquals(antes.getActualizadoEn(), despues.getActualizadoEn());
     }
 
     @Test
@@ -270,7 +270,7 @@ class EstadoEventoIntegracionTest {
     void elCuerpoSeValidaConLosMensajesDeF05YNoModificaNada() throws Exception {
         enviar("{\"eventoId\":\"" + evento + "\",\"nombre\":\"  \",\"estado\":\"CANCELADO\","
                 + "\"fechaInicio\":\"2026-11-20T10:00:00\",\"escenario\":{\"edificios\":[\"\"]},"
-                + "\"rolesConvocados\":[\"ESTUDIANTE\",\"ADMIN\"]}")
+                + "\"rolesConvocados\":[\"ESTUDIANTE\",\"admin\"]}")
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.codigo").value("VALIDACION"))
                 .andExpect(jsonPath("$.errores[?(@.campo=='nombre')].mensaje")
@@ -287,6 +287,24 @@ class EstadoEventoIntegracionTest {
                         .value(EstadoEventoValidator.ROL_NO_VALIDO));
 
         assertFalse(eventos.existsById(evento));
+    }
+
+    /** El escenario trae los nombres de MS02 (RN-MS04-24): hasta 100 caracteres se guardan; más, 400 */
+    @Test
+    void elEscenarioAceptaNombresDeHasta100Caracteres() throws Exception {
+        String cien = "Edificio ".repeat(12).substring(0, 100);
+        String cuerpo = cuerpo(evento, true, "PROGRAMADO", INICIO);
+
+        enviar(cuerpo.replace("\"Bloque A\"", "\"" + cien + "x\""))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errores[?(@.campo=='escenario.edificios')].mensaje")
+                        .value(EstadoEventoValidator.EDIFICIO_NO_VALIDO));
+        assertFalse(eventos.existsById(evento));
+
+        enviar(cuerpo.replace("\"Bloque A\"", "\"" + cien + "\"").replace("\"Zona norte\"", "\"" + cien + "\""))
+                .andExpect(status().isCreated());
+        assertEquals(List.of(cien), guardado().getEscenarioEdificios());
+        assertEquals(List.of(cien), guardado().getEscenarioZonas());
     }
 
     @Test
@@ -307,6 +325,37 @@ class EstadoEventoIntegracionTest {
                 .andExpect(jsonPath("$.errores[0].mensaje").value(EstadoEventoValidator.FECHA_EN_BORRADOR));
     }
 
+    /**
+     * Roles flexibles (Estándares, sección 6): un rol creado por el administrador, de hasta 30 caracteres, se puede
+     * convocar, y el evento les aplica a sus usuarios (RN-MS04-01)
+     */
+    @Test
+    void unRolNuevoSePuedeConvocarYElEventoLeAplicaASusUsuarios() throws Exception {
+        String rolNuevo = "JEFE_DE_PISO_EDIFICIO_NORTE_AB";
+        enviar(cuerpo(evento, true, "EN_EJECUCION", INICIO).replace("\"PROFESOR\"", "\"" + rolNuevo + "\""))
+                .andExpect(status().isCreated());
+
+        assertEquals(java.util.List.of("ESTUDIANTE", rolNuevo), guardado().getRolesConvocados());
+        mockMvc.perform(get(BASE + "activos")
+                .header(IdentityHeaders.USER_ID, UUID.randomUUID().toString())
+                .header(IdentityHeaders.USER_ROLE, rolNuevo)
+                .header(IdentityHeaders.USER_PERMISSION, "ms04:checkin:read_own"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].evento_id").value(evento.toString()));
+    }
+
+    @Test
+    void unRolConvocadoSinElFormatoDeRolSeRechaza() throws Exception {
+        for (String rol : new String[] { "estudiante", "E", "1ROL", "ROL-CON-GUION",
+                "JEFE_DE_PISO_EDIFICIO_NORTE_ABC" }) {
+            enviar(cuerpo(evento, true, "PROGRAMADO", INICIO).replace("\"PROFESOR\"", "\"" + rol + "\""))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errores[0].campo").value("rolesConvocados"))
+                    .andExpect(jsonPath("$.errores[0].mensaje").value(EstadoEventoValidator.ROL_NO_VALIDO));
+        }
+        assertFalse(eventos.existsById(evento));
+    }
+
     @Test
     void losRolesConvocadosNoSePuedenRepetirNiFaltar() throws Exception {
         enviar(cuerpo(evento, true, "PROGRAMADO", INICIO).replace("\"PROFESOR\"", "\"ESTUDIANTE\""))
@@ -323,10 +372,15 @@ class EstadoEventoIntegracionTest {
         enviar("EN_EJECUCION", null).andExpect(status().isOk());
 
         verify(auditoria).recordSystem(eq(AuditAction.CAMBIO_ESTADO_EVENTO), eq(AuditResult.EXITO),
-                eq("evento:" + evento), eq("origen=ms06 NUEVO->PROGRAMADO"), org.mockito.ArgumentMatchers.any());
+                eq("evento:" + evento), eq("origen=ms06 NUEVO->PROGRAMADO"), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.argThat(c -> evento.equals(c.eventoId()) && c.simulacro() != null));
         verify(auditoria).recordSystem(eq(AuditAction.CAMBIO_ESTADO_EVENTO), eq(AuditResult.EXITO),
                 eq("evento:" + evento), eq("origen=ms06 PROGRAMADO->EN_EJECUCION"),
-                org.mockito.ArgumentMatchers.any());
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.argThat(c -> evento.equals(c.eventoId()) && c.simulacro() != null
+                        && "PROGRAMADO".equals(c.atributos().get("estado_anterior"))
+                        && "EN_EJECUCION".equals(c.atributos().get("estado_nuevo"))
+                        && "ms06".equals(c.atributos().get("servicio_origen"))));
     }
 
     @Test
@@ -337,9 +391,11 @@ class EstadoEventoIntegracionTest {
         enviar("PROGRAMADO", null).andExpect(status().isBadRequest());
 
         verify(auditoria).recordSystem(eq(AuditAction.CAMBIO_ESTADO_EVENTO), eq(AuditResult.FALLO),
-                eq("evento:" + evento), eq("origen=ms06 CONFLICTO"), org.mockito.ArgumentMatchers.any());
+                eq("evento:" + evento), eq("origen=ms06 CONFLICTO"), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.argThat(c -> evento.equals(c.eventoId()) && c.simulacro() != null));
         verify(auditoria).recordSystem(eq(AuditAction.CAMBIO_ESTADO_EVENTO), eq(AuditResult.FALLO),
-                eq("evento:" + evento), eq("origen=ms06 VALIDACION"), org.mockito.ArgumentMatchers.any());
+                eq("evento:" + evento), eq("origen=ms06 VALIDACION"), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.argThat(c -> evento.equals(c.eventoId()) && c.simulacro() != null));
     }
 
     @Test

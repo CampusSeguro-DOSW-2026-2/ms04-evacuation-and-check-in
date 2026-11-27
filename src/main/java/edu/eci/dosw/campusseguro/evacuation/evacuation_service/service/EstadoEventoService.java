@@ -3,14 +3,18 @@ package edu.eci.dosw.campusseguro.evacuation.evacuation_service.service;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.audit.AuditAction;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.audit.AuditContext;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.audit.AuditRecorder;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.audit.AuditResult;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.EstadoEventoRequest;
@@ -29,8 +33,8 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.service.EstadoEve
  *
  * Pasos:
  * 1. Valida el cuerpo con F-05 (400)
- * 2. Determina el estado efectivo: con {@code simulacro = false}, todo estado distinto de FINALIZADO es
- *    EN_EJECUCION (RN-MS04-20)
+ * 2. Toma el estado que envía MS06, dueño del ciclo de vida: simulacros y eventos reales siguen los mismos
+ *    estados (RN-MS04-20)
  * 3. En una transacción: toma el bloqueo del evento (así dos llamadas simultáneas, incluso sobre un evento
  *    nuevo, se atienden una tras otra, RNF-MS04-18), lo lee con SELECT ... FOR UPDATE, valida la transición de
  *    RN-MS04-21 (409) y crea o actualiza el evento
@@ -44,6 +48,8 @@ public class EstadoEventoService {
     public static final String TRANSICION_NO_PERMITIDA = "La transición de estado no está permitida.";
     /** Estado anterior en el detalle de auditoría cuando el evento no existía */
     public static final String NUEVO = "NUEVO";
+
+    private static final Logger log = LoggerFactory.getLogger(EstadoEventoService.class);
 
     private final EventoRepository eventos;
     private final AuditRecorder auditoria;
@@ -86,44 +92,33 @@ public class EstadoEventoService {
         } catch (RuntimeException e) {
             String codigo = e instanceof ApiException api ? api.getCode().getCode() : ErrorCode.INTERNAL_ERROR.getCode();
             auditoria.recordSystem(AuditAction.CAMBIO_ESTADO_EVENTO, AuditResult.FALLO,
-                    AuditRecorder.eventResource(eventoId), detalle(servicio, codigo), correlationId);
+                    AuditRecorder.eventResource(eventoId), detalle(servicio, codigo), correlationId,
+                    contextoFallido(eventoId, request).con("servicio_origen", origen(servicio)));
             throw e;
         }
         String anterior = cambio.anterior() == null ? NUEVO : cambio.anterior().name();
         auditoria.recordSystem(AuditAction.CAMBIO_ESTADO_EVENTO, AuditResult.EXITO,
                 AuditRecorder.eventResource(eventoId),
-                detalle(servicio, anterior + "->" + cambio.evento().getEstado().name()), correlationId);
+                detalle(servicio, anterior + "->" + cambio.evento().getEstado().name()), correlationId,
+                AuditContext.de(cambio.evento()).con("estado_anterior", anterior)
+                        .con("estado_nuevo", cambio.evento().getEstado())
+                        .con("servicio_origen", origen(servicio)));
         return new ResultadoEstadoEvento(EventoMapper.aInterno(cambio.evento()), cambio.anterior() == null);
-    }
-
-    /**
-     * Estado efectivo (RN-MS04-20): un evento que no es simulacro es inmediato y queda EN_EJECUCION, salvo que
-     * llegue FINALIZADO
-     *
-     * @param simulacro tipo de evento
-     * @param recibido estado que envía MS06
-     * @return el estado que se guarda
-     */
-    static EstadoEvento estadoEfectivo(boolean simulacro, EstadoEvento recibido) {
-        if (!simulacro && recibido != EstadoEvento.FINALIZADO) {
-            return EstadoEvento.EN_EJECUCION;
-        }
-        return recibido;
     }
 
     private Cambio aplicar(UUID eventoId, EstadoValidado datos) {
         eventos.bloquearEvento(eventoId);
-        EstadoEvento efectivo = estadoEfectivo(datos.simulacro(), datos.estado());
+        EstadoEvento recibido = datos.estado();
         Optional<Evento> guardado = eventos.buscarParaActualizar(eventoId);
         if (guardado.isEmpty()) {
-            return new Cambio(crear(eventoId, datos, efectivo), null);
+            return new Cambio(crear(eventoId, datos, recibido), null);
         }
         Evento evento = guardado.get();
         EstadoEvento anterior = evento.getEstado();
         if (evento.isSimulacro() != datos.simulacro()) {
             throw ApiException.conflicto(TIPO_NO_PUEDE_CAMBIAR);
         }
-        actualizar(evento, datos, efectivo);
+        actualizar(evento, datos, recibido);
         eventos.flush();
         return new Cambio(evento, anterior);
     }
@@ -132,13 +127,13 @@ public class EstadoEventoService {
      * Un evento nuevo puede llegar en cualquier estado (RN-MS04-21). Sin fecha de inicio, salvo en BORRADOR, se
      * toma la fecha/hora de recepción (RN-MS04-24); con FINALIZADO se guarda la fecha de cierre
      */
-    private Evento crear(UUID eventoId, EstadoValidado datos, EstadoEvento efectivo) {
+    private Evento crear(UUID eventoId, EstadoValidado datos, EstadoEvento recibido) {
         Instant ahora = ahora();
         Evento evento = new Evento(eventoId);
         evento.setSimulacro(datos.simulacro());
-        evento.setEstado(efectivo);
-        evento.setFechaInicio(efectivo == EstadoEvento.BORRADOR ? null : fechaODefecto(datos, ahora));
-        evento.setFechaCierre(efectivo == EstadoEvento.FINALIZADO ? ahora : null);
+        evento.setEstado(recibido);
+        evento.setFechaInicio(recibido == EstadoEvento.BORRADOR ? null : fechaODefecto(datos, ahora));
+        evento.setFechaCierre(recibido == EstadoEvento.FINALIZADO ? ahora : null);
         copiarInformacion(evento, datos);
         return eventos.saveAndFlush(evento);
     }
@@ -147,11 +142,11 @@ public class EstadoEventoService {
      * Transiciones aceptadas con el evento ya guardado (RN-MS04-21). Cualquier otra combinación responde 409 y no
      * modifica nada. Repetir EN_EJECUCION o FINALIZADO no escribe nada (idempotente)
      */
-    private void actualizar(Evento evento, EstadoValidado datos, EstadoEvento efectivo) {
+    private void actualizar(Evento evento, EstadoValidado datos, EstadoEvento recibido) {
         EstadoEvento actual = evento.getEstado();
         switch (actual) {
             case BORRADOR -> {
-                switch (efectivo) {
+                switch (recibido) {
                     // Actualiza nombre, escenario y roles; sigue sin fecha
                     case BORRADOR -> copiarInformacion(evento, datos);
                     // Programación: guarda la fecha de inicio (obligatoria con PROGRAMADO)
@@ -162,7 +157,7 @@ public class EstadoEventoService {
                 }
             }
             case PROGRAMADO -> {
-                switch (efectivo) {
+                switch (recibido) {
                     // Reprogramación: actualiza fecha, nombre, escenario y roles
                     case PROGRAMADO -> programar(evento, datos, datos.fechaInicio());
                     // Cancelación de la programación: se elimina la fecha
@@ -178,17 +173,17 @@ public class EstadoEventoService {
                 }
             }
             case EN_EJECUCION -> {
-                if (efectivo == EstadoEvento.FINALIZADO) {
+                if (recibido == EstadoEvento.FINALIZADO) {
                     // Cierre: deshabilita el check-in y guarda la fecha de recepción
                     evento.setEstado(EstadoEvento.FINALIZADO);
                     evento.setFechaCierre(ahora());
-                } else if (efectivo != EstadoEvento.EN_EJECUCION) {
+                } else if (recibido != EstadoEvento.EN_EJECUCION) {
                     throw transicionNoPermitida();
                 }
             }
             case FINALIZADO -> {
                 // FINALIZADO es definitivo: solo se acepta repetirlo
-                if (efectivo != EstadoEvento.FINALIZADO) {
+                if (recibido != EstadoEvento.FINALIZADO) {
                     throw transicionNoPermitida();
                 }
             }
@@ -232,8 +227,31 @@ public class EstadoEventoService {
     }
 
     /** Detalle de auditoría: el servicio de origen y los estados, o el código del error (RNF-MS04-17) */
+    /**
+     * Evento de un cambio rechazado para la auditoría: el tipo guardado si el evento ya existe; si no, el que trae la
+     * petición; sin ninguno de los dos, la auditoría va sin evento (tipo_evento es obligatorio con evento_id)
+     */
+    private AuditContext contextoFallido(UUID eventoId, EstadoEventoRequest request) {
+        if (eventoId == null) {
+            return AuditContext.NINGUNO;
+        }
+        try {
+            Optional<Evento> guardado = eventos.findById(eventoId);
+            if (guardado.isPresent()) {
+                return AuditContext.de(guardado.get());
+            }
+        } catch (RuntimeException e) {
+            log.warn("No se pudo leer el evento {} para auditar el cambio rechazado: {}", eventoId, e.toString());
+        }
+        Boolean simulacro = request == null ? null : request.simulacro();
+        return simulacro == null ? AuditContext.NINGUNO : new AuditContext(eventoId, simulacro, Map.of());
+    }
+
     private static String detalle(String servicio, String cambio) {
-        String origen = servicio == null ? "desconocido" : servicio.trim().toLowerCase();
-        return "origen=" + origen + " " + cambio;
+        return "origen=" + origen(servicio) + " " + cambio;
+    }
+
+    private static String origen(String servicio) {
+        return servicio == null ? "desconocido" : servicio.trim().toLowerCase();
     }
 }

@@ -37,6 +37,7 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.Checki
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.EventoRepository;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.IdentityHeaders;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.PostgresTestcontainerConfig;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.IdentidadesDePrueba;
 import jakarta.persistence.EntityManager;
 
 /**
@@ -246,7 +247,7 @@ class DetalleCheckinsIntegracionTest {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.codigo").value("PROHIBIDO"));
         mockMvc.perform(get(BASE + eventoId + "/checkins")
-                .header(IdentityHeaders.USER_ID, ANA.toString()).header(IdentityHeaders.USER_ROLE, "COORDINADOR"))
+                .header(IdentityHeaders.USER_ID, ANA.toString()).header(IdentityHeaders.USER_ROLE, "COORDINADOR").header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos("COORDINADOR")))
                 .andExpect(status().isUnauthorized());
     }
 }

@@ -39,24 +39,26 @@ public class UsuarioNombresClientImpl implements UsuarioNombresClient {
     }
 
     @Override
-    public Map<UUID, String> nombresDe(Collection<UUID> usuarioIds) {
+    public Map<UUID, DatosUsuario> datosDe(Collection<UUID> usuarioIds) {
         if (usuarioIds.isEmpty()) {
             return Map.of();
         }
         List<String> ids = usuarioIds.stream().map(UUID::toString).toList();
         try {
             JsonNode respuesta = gateway.post(BATCH_PATH, Json.write(Map.of("ids", ids)));
-            Map<UUID, String> nombres = new HashMap<>();
+            Map<UUID, DatosUsuario> datos = new HashMap<>();
             for (JsonNode usuario : respuesta.path("usuarios")) {
                 String nombre = CAMPOS_NOMBRE.stream()
                         .map(campo -> usuario.path(campo).asString("").strip())
                         .filter(parte -> !parte.isEmpty())
                         .collect(Collectors.joining(" "));
-                nombres.put(UUID.fromString(usuario.path("id").asString("")), nombre);
+                String correo = usuario.path("correo").asString("").strip();
+                datos.put(UUID.fromString(usuario.path("id").asString("")),
+                        new DatosUsuario(nombre, correo.isEmpty() ? null : correo));
             }
-            return nombres;
+            return datos;
         } catch (ApiException | IllegalArgumentException e) {
-            log.warn("MS01 no entregó los nombres de {} usuarios: la lista se entrega con el nombre nulo",
+            log.warn("MS01 no entregó los datos de {} usuarios: la lista se entrega con el nombre y el correo nulos",
                     ids.size());
             return Map.of();
         }

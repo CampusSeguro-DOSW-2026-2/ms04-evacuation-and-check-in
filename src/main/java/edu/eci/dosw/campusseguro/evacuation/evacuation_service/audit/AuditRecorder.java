@@ -38,11 +38,12 @@ public class AuditRecorder {
      * @param resource {@code checkin:<id>} o {@code evento:<id>}
      * @param detail código genérico del motivo o dato adicional; puede ser null
      * @param correlationId correlation id de la petición
+     * @param context evento al que pertenece la acción y atributos para los indicadores de MS08
      */
     public void recordAs(AuditAction action, AuditResult result, RequesterIdentity requester, String resource,
-            String detail, String correlationId) {
-        publish(new AuditEvent(action, result, requester.userId(), requester.rolesComoCabecera(), detail,
-                correlationId, clock.instant(), resource));
+            String detail, String correlationId, AuditContext context) {
+        publish(new AuditEvent(UUID.randomUUID(), action, result, requester.userId(), requester.rolesComoCabecera(),
+                requester.permisosComoCabecera(), detail, correlationId, clock.instant(), resource, context));
     }
 
     /**
@@ -53,10 +54,12 @@ public class AuditRecorder {
      * @param resource {@code checkin:<id>} o {@code evento:<id>}
      * @param detail código genérico del motivo o dato adicional; puede ser null
      * @param correlationId correlation id de la petición
+     * @param context evento al que pertenece la acción y atributos para los indicadores de MS08
      */
     public void recordSystem(AuditAction action, AuditResult result, String resource, String detail,
-            String correlationId) {
-        publish(new AuditEvent(action, result, null, null, detail, correlationId, clock.instant(), resource));
+            String correlationId, AuditContext context) {
+        publish(new AuditEvent(UUID.randomUUID(), action, result, null, null, null, detail, correlationId,
+                clock.instant(), resource, context));
     }
 
     /**

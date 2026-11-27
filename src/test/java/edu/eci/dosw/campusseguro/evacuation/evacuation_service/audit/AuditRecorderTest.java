@@ -2,6 +2,7 @@ package edu.eci.dosw.campusseguro.evacuation.evacuation_service.audit;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
@@ -11,7 +12,7 @@ import static org.mockito.Mockito.verify;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
-import java.util.Set;
+import java.util.Map;
 import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -19,7 +20,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.RequesterIdentity;
-import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.Rol;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.IdentidadesDePrueba;
 
 class AuditRecorderTest {
 
@@ -45,31 +46,37 @@ class AuditRecorderTest {
 
     @Test
     void recordAsLlevaLaIdentidadDelUsuarioConSusRolesOrdenados() {
-        RequesterIdentity usuario = new RequesterIdentity(USUARIO, Set.of(Rol.ESTUDIANTE, Rol.BRIGADISTA));
+        RequesterIdentity usuario = IdentidadesDePrueba.identidad(USUARIO, "ESTUDIANTE", "BRIGADISTA");
+
+        AuditContext contexto = new AuditContext(EVENTO, true, Map.of()).con("estado", "SAFE");
 
         auditor.recordAs(AuditAction.REGISTRO_CHECKIN, AuditResult.EXITO, usuario, "evento:" + EVENTO, null,
-                CORRELATION);
+                CORRELATION, contexto);
 
         AuditEvent evento = publicado();
         assertEquals(AuditAction.REGISTRO_CHECKIN, evento.accion());
         assertEquals(AuditResult.EXITO, evento.resultado());
         assertEquals(USUARIO, evento.usuarioId());
         assertEquals("BRIGADISTA,ESTUDIANTE", evento.usuarioRoles());
+        assertEquals(IdentidadesDePrueba.permisos("BRIGADISTA,ESTUDIANTE"), evento.usuarioPermisos());
         assertEquals("evento:" + EVENTO, evento.recursoAfectado());
         assertEquals(CORRELATION, evento.correlationId());
         assertEquals(AHORA, evento.fecha());
+        assertEquals(contexto, evento.contexto());
+        assertNotNull(evento.id());
     }
 
     @Test
     void recordSystemNoLlevaUsuario() {
         auditor.recordSystem(AuditAction.CAMBIO_ESTADO_EVENTO, AuditResult.FALLO, "evento:" + EVENTO,
-                "origen=ms06", CORRELATION);
+                "origen=ms06", CORRELATION, null);
 
         AuditEvent evento = publicado();
         assertNull(evento.usuarioId());
         assertNull(evento.usuarioRoles());
         assertEquals("origen=ms06", evento.detalle());
         assertEquals(AuditResult.FALLO, evento.resultado());
+        assertEquals(AuditContext.NINGUNO, evento.contexto());
     }
 
     @Test
@@ -77,7 +84,7 @@ class AuditRecorderTest {
         doThrow(new IllegalStateException("MS08 caído")).when(publicador).publish(any());
 
         assertDoesNotThrow(() -> auditor.recordSystem(AuditAction.SOLICITUD_ASISTENCIA, AuditResult.EXITO,
-                "checkin:" + USUARIO, null, CORRELATION));
+                "checkin:" + USUARIO, null, CORRELATION, AuditContext.NINGUNO));
     }
 
     @Test
@@ -89,13 +96,32 @@ class AuditRecorderTest {
     }
 
     @Test
-    void elEventoExigeAccionResultadoYFecha() {
+    void elEventoExigeIdAccionResultadoYFecha() {
+        UUID id = UUID.randomUUID();
         org.junit.jupiter.api.Assertions.assertThrows(NullPointerException.class,
-                () -> new AuditEvent(null, AuditResult.EXITO, null, null, null, null, AHORA, null));
+                () -> new AuditEvent(null, AuditAction.REGISTRO_CHECKIN, AuditResult.EXITO, null, null, null, null,
+                        null, AHORA, null, null));
         org.junit.jupiter.api.Assertions.assertThrows(NullPointerException.class,
-                () -> new AuditEvent(AuditAction.REGISTRO_CHECKIN, null, null, null, null, null, AHORA, null));
+                () -> new AuditEvent(id, null, AuditResult.EXITO, null, null, null, null, null, AHORA, null, null));
         org.junit.jupiter.api.Assertions.assertThrows(NullPointerException.class,
-                () -> new AuditEvent(AuditAction.REGISTRO_CHECKIN, AuditResult.EXITO, null, null, null, null, null,
+                () -> new AuditEvent(id, AuditAction.REGISTRO_CHECKIN, null, null, null, null, null, null, AHORA, null,
                         null));
+        org.junit.jupiter.api.Assertions.assertThrows(NullPointerException.class,
+                () -> new AuditEvent(id, AuditAction.REGISTRO_CHECKIN, AuditResult.EXITO, null, null, null, null,
+                        null, null, null, null));
+    }
+
+    @Test
+    void elContextoExigeEventoYTipoJuntosYOmiteLosAtributosNulos() {
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> new AuditContext(EVENTO, null, Map.of()));
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> new AuditContext(null, false, Map.of()));
+
+        AuditContext contexto = new AuditContext(EVENTO, false, null).con("estado", "SAFE").con("ubicacion_id", null);
+
+        assertEquals("REAL", contexto.tipoEvento());
+        assertEquals(Map.of("estado", "SAFE"), contexto.atributos());
+        assertNull(AuditContext.NINGUNO.tipoEvento());
     }
 }

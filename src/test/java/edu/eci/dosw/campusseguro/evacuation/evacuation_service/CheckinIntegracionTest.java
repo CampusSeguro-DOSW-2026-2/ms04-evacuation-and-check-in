@@ -16,7 +16,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
@@ -54,9 +53,9 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.exception.ApiExce
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.EventoRepository;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.IdentityHeaders;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.RequesterIdentity;
-import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.Rol;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.service.CheckinService;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.PostgresTestcontainerConfig;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.IdentidadesDePrueba;
 
 /**
  * RF-MS04-02 Registrar check-in y RF-MS04-03 Mantener y actualizar el estado vigente, de punta a punta con
@@ -116,7 +115,7 @@ class CheckinIntegracionTest {
     private ResultActions reportar(UUID eventoId, String roles, String cuerpo) throws Exception {
         return mockMvc.perform(post("/api/v1/chi/eventos/{id}/checkins", eventoId)
                 .header(IdentityHeaders.USER_ID, USUARIO.toString())
-                .header(IdentityHeaders.USER_ROLE, roles)
+                .header(IdentityHeaders.USER_ROLE, roles).header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos(roles))
                 .header("X-Correlation-ID", CORRELATION_ID)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(cuerpo));
@@ -431,6 +430,11 @@ class CheckinIntegracionTest {
             assertEquals(USUARIO, e.usuarioId());
             assertEquals("ESTUDIANTE", e.usuarioRoles());
             assertEquals(CORRELATION_ID, e.correlationId());
+            // Estándares §12: el evento, su tipo y los atributos que MS08 usa en sus indicadores
+            assertEquals(evento.getId(), e.contexto().eventoId());
+            assertEquals(evento.isSimulacro() ? "SIMULACRO" : "REAL", e.contexto().tipoEvento());
+            assertEquals("SAFE", e.contexto().atributos().get("estado"));
+            assertEquals(PUNTO_A.toString(), e.contexto().atributos().get("punto_encuentro_id"));
         }
 
         @Test
@@ -443,6 +447,9 @@ class CheckinIntegracionTest {
             assertEquals(AuditAction.CAMBIO_ESTADO_CHECKIN, e.accion());
             assertEquals(AuditResult.EXITO, e.resultado());
             assertEquals("EVACUATING->SAFE", e.detalle());
+            assertEquals(evento.getId(), e.contexto().eventoId());
+            assertEquals("SAFE", e.contexto().atributos().get("estado"));
+            assertEquals("EVACUATING", e.contexto().atributos().get("estado_anterior"));
         }
 
         @Test
@@ -466,6 +473,8 @@ class CheckinIntegracionTest {
             assertEquals(AuditResult.FALLO, e.resultado());
             assertEquals("evento:" + evento.getId(), e.recursoAfectado());
             assertEquals("REGLA_NEGOCIO", e.detalle());
+            assertEquals(evento.getId(), e.contexto().eventoId());
+            assertEquals(evento.isSimulacro() ? "SIMULACRO" : "REAL", e.contexto().tipoEvento());
         }
 
         @Test
@@ -499,7 +508,7 @@ class CheckinIntegracionTest {
     @Test
     void reportesSimultaneosDelMismoEstadoDejanUnSoloCheckIn() throws Exception {
         Evento evento = enEjecucion();
-        RequesterIdentity usuario = new RequesterIdentity(USUARIO, Set.of(Rol.ESTUDIANTE));
+        RequesterIdentity usuario = IdentidadesDePrueba.identidad(USUARIO, "ESTUDIANTE");
         CheckinRequest request = new CheckinRequest(EstadoCheckin.SAFE, PUNTO_A, null);
         int hilos = 20;
         ExecutorService pool = Executors.newFixedThreadPool(hilos);

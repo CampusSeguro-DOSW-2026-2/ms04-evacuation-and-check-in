@@ -29,9 +29,13 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.util.Json;
  * (Estándares, sección 5). Timeout de cliente de 2000 ms y sin reintentos: los reintentos los hace el reenvío
  * periódico.
  *
- * CONTRATO PROVISIONAL: MS05 todavía no publica el endpoint para las solicitudes que vienen de MS04 (decisión abierta
- * n.º 3 de los Estándares y n.º 4 de los requerimientos de MS04). La ruta se configura con MS05_SOLICITUDES_PATH; el
- * cuerpo y la respuesta son los que propone MS04 y deben acordarse con MS05
+ * Usa el endpoint que MS05 ya publica para registrar incidentes, {@code POST /api/v1/incidentes/eventos/{eventoId}}
+ * (RF-BEI-04): la solicitud de asistencia es un incidente que MS05 guarda a nombre del usuario del check-in, con la
+ * ubicación del check-in y la prioridad configurada. Por eso MS05 autoriza con la identidad del usuario
+ * (X-User-Id, X-User-Role y X-User-Permission, permiso ms05:incident:report) y no con X-Service-Name. La ruta se
+ * configura con MS05_SOLICITUDES_PATH ({eventoId} se reemplaza por el evento de la solicitud) y la prioridad con
+ * MS05_PRIORIDAD_ID, el id del catálogo de prioridades de MS05 (1 = EMERGENCIA). MS05 no tiene llave de idempotencia
+ * por check-in: MS04 evita los duplicados con su regla de una solicitud por usuario y evento (RN-MS04-11)
  */
 @Component
 public class Ms05SolicitudAsistenciaClient implements SolicitudAsistenciaClient {
@@ -44,18 +48,21 @@ public class Ms05SolicitudAsistenciaClient implements SolicitudAsistenciaClient 
     private final String gatewayUrl;
     private final String serviceKey;
     private final String path;
+    private final long prioridadId;
 
     /**
      * @param gatewayUrl URL base del API Gateway; si está vacía, la solicitud queda pendiente de envío
      * @param serviceKey clave de servicio de MS04 (GATEWAY_SERVICE_KEY)
      * @param timeoutMs timeout de conexión y de lectura, en milisegundos
-     * @param path ruta interna de MS05 para crear la solicitud
+     * @param path ruta de MS05 para registrar el incidente; {eventoId} se reemplaza por el evento de la solicitud
+     * @param prioridadId id de la prioridad de MS05 con la que se registra la solicitud (1 = EMERGENCIA)
      */
     public Ms05SolicitudAsistenciaClient(
             @Value("${gateway.url:}") String gatewayUrl,
             @Value("${gateway.service-key:}") String serviceKey,
             @Value("${gateway.timeout-ms:2000}") long timeoutMs,
-            @Value("${clients.ms05.solicitudes-path:/api/v1/internal/solicitudes-asistencia}") String path) {
+            @Value("${clients.ms05.solicitudes-path:/api/v1/incidentes/eventos/{eventoId}}") String path,
+            @Value("${clients.ms05.prioridad-id:1}") long prioridadId) {
         Duration timeout = Duration.ofMillis(timeoutMs);
         HttpClient httpClient = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
@@ -67,10 +74,12 @@ public class Ms05SolicitudAsistenciaClient implements SolicitudAsistenciaClient 
         this.gatewayUrl = sinBarraFinal(gatewayUrl);
         this.serviceKey = serviceKey;
         this.path = path;
+        this.prioridadId = prioridadId;
     }
 
     @Override
-    public ResultadoEnvioMs05 enviar(SolicitudAsistencia solicitud, String rolesUsuario, String correlationId) {
+    public ResultadoEnvioMs05 enviar(SolicitudAsistencia solicitud, String rolesUsuario, String permisosUsuario,
+            String correlationId) {
         if (gatewayUrl.isEmpty()) {
             log.error("GATEWAY_URL no está configurada: la solicitud de asistencia {} queda pendiente de envío",
                     solicitud.getId());
@@ -78,7 +87,7 @@ public class Ms05SolicitudAsistenciaClient implements SolicitudAsistenciaClient 
         }
         try {
             return restClient.post()
-                    .uri(gatewayUrl + path)
+                    .uri(gatewayUrl + path.replace("{eventoId}", solicitud.getEventoId().toString()))
                     .contentType(MediaType.APPLICATION_JSON)
                     .accept(MediaType.APPLICATION_JSON)
                     .headers(headers -> {
@@ -88,16 +97,20 @@ public class Ms05SolicitudAsistenciaClient implements SolicitudAsistenciaClient 
                         if (correlationId != null) {
                             headers.set(CorrelationIds.HEADER, correlationId);
                         }
-                        headers.set(IdentityHeaders.USER_ID, solicitud.getUsuarioId().toString());
-                        if (rolesUsuario != null && !rolesUsuario.isBlank()) {
+                        // MS05 registra el incidente a nombre de X-User-Id y lo autoriza con X-User-Permission. El
+                        // Gateway exige las tres cabeceras juntas o ninguna; en el reenvío periódico llegan las que
+                        // se guardaron con la solicitud. Sin ellas MS05 responde 401 y la solicitud sigue pendiente
+                        if (noVacio(rolesUsuario) && noVacio(permisosUsuario)) {
+                            headers.set(IdentityHeaders.USER_ID, solicitud.getUsuarioId().toString());
                             headers.set(IdentityHeaders.USER_ROLE, rolesUsuario);
+                            headers.set(IdentityHeaders.USER_PERMISSION, permisosUsuario);
                         }
                     })
                     // Ya serializado: así viaja con Content-Length y no en bloques (chunked), como la auditoría
-                    .body(Json.write(cuerpo(solicitud)).getBytes(StandardCharsets.UTF_8))
+                    .body(Json.write(cuerpo(solicitud, prioridadId)).getBytes(StandardCharsets.UTF_8))
                     .exchange((request, response) -> {
                         int status = response.getStatusCode().value();
-                        if (status == 400 || status == 422) {
+                        if (status == 400 || status == 403 || status == 422) {
                             log.warn("MS05 rechazó la solicitud de asistencia {} con HTTP {}", solicitud.getId(),
                                     status);
                             return ResultadoEnvioMs05.rechazada("HTTP " + status);
@@ -108,17 +121,21 @@ public class Ms05SolicitudAsistenciaClient implements SolicitudAsistenciaClient 
                             return ResultadoEnvioMs05.noDisponible("HTTP " + status);
                         }
                         RespuestaMs05 creada = response.bodyTo(RespuestaMs05.class);
-                        if (creada == null || creada.id() == null || creada.id().isBlank()) {
+                        if (creada == null || creada.idIncidente() == null || creada.idIncidente().isBlank()) {
                             log.warn("MS05 respondió sin id a la solicitud de asistencia {}", solicitud.getId());
                             return ResultadoEnvioMs05.noDisponible("respuesta sin id");
                         }
-                        return ResultadoEnvioMs05.creada(creada.id());
+                        return ResultadoEnvioMs05.creada(creada.idIncidente());
                     });
         } catch (RestClientException | IllegalArgumentException e) {
             log.warn("MS05 no respondió a la solicitud de asistencia {}: {}", solicitud.getId(),
                     e.getClass().getSimpleName());
             return ResultadoEnvioMs05.noDisponible(e.getClass().getSimpleName());
         }
+    }
+
+    private static boolean noVacio(String valor) {
+        return valor != null && !valor.isBlank();
     }
 
     private static String sinBarraFinal(String url) {
@@ -133,27 +150,22 @@ public class Ms05SolicitudAsistenciaClient implements SolicitudAsistenciaClient 
     }
 
     /**
-     * Cuerpo que MS04 envía a MS05 (provisional). Las rutas internas usan camelCase, como el resto de llamadas
-     * entre servicios:
+     * Cuerpo del incidente que MS04 envía a MS05 (CrearIncidenteRequest de MS05):
      * <ul>
-     * <li>{@code solicitudId}: id de la solicitud en MS04, llave de idempotencia (RN-MS04-12)</li>
-     * <li>{@code eventoId}: evento del check-in</li>
-     * <li>{@code usuarioId}: usuario que requiere asistencia</li>
-     * <li>{@code checkinId}: check-in Requiero asistencia que originó la solicitud</li>
-     * <li>{@code ubicacion}: {@code tipo} (EDIFICIO, ESPACIO o PUNTO_ENCUENTRO) e {@code id} del elemento en MS02
-     * donde se requiere la asistencia (RN-MS04-09)</li>
+     * <li>{@code prioridadId}: prioridad configurada (MS05_PRIORIDAD_ID)</li>
+     * <li>{@code ubicacionId}: id del elemento en MS02 donde se requiere la asistencia (RN-MS04-09)</li>
+     * <li>{@code tipoUbicacion}: EDIFICIO o PUNTO_ENCUENTRO; MS05 no tiene ESPACIO y lo rechaza con 400, así que la
+     * solicitud queda RECHAZADA</li>
+     * <li>{@code descripcion}: texto con el check-in de origen, para la trazabilidad entre MS04 y MS05</li>
      * </ul>
+     * El nombre del afectado no se envía: MS05 usa el nombre del usuario que reporta, que consulta a MS01
      */
-    static Map<String, Object> cuerpo(SolicitudAsistencia s) {
-        Map<String, Object> ubicacion = new LinkedHashMap<>();
-        ubicacion.put("tipo", s.getUbicacionTipo());
-        ubicacion.put("id", texto(s.getUbicacionId()));
+    static Map<String, Object> cuerpo(SolicitudAsistencia s, long prioridadId) {
         Map<String, Object> cuerpo = new LinkedHashMap<>();
-        cuerpo.put("solicitudId", texto(s.getId()));
-        cuerpo.put("eventoId", texto(s.getEventoId()));
-        cuerpo.put("usuarioId", texto(s.getUsuarioId()));
-        cuerpo.put("checkinId", texto(s.getCheckinId()));
-        cuerpo.put("ubicacion", ubicacion);
+        cuerpo.put("prioridadId", prioridadId);
+        cuerpo.put("ubicacionId", texto(s.getUbicacionId()));
+        cuerpo.put("tipoUbicacion", s.getUbicacionTipo() == null ? null : s.getUbicacionTipo().name());
+        cuerpo.put("descripcion", "Solicitud de asistencia generada por el check-in " + texto(s.getCheckinId()));
         return cuerpo;
     }
 
@@ -162,12 +174,12 @@ public class Ms05SolicitudAsistenciaClient implements SolicitudAsistenciaClient 
     }
 
     /**
-     * Respuesta de MS05: solo interesa el id de la solicitud creada. Se lee como texto porque MS05 aún no define su
-     * tipo (columna solicitud_ms05_id VARCHAR(64))
+     * Respuesta de MS05 (IncidenteResponse): solo interesa el id del incidente creado. Se lee como texto (columna
+     * solicitud_ms05_id VARCHAR(64))
      *
-     * @param id id de la solicitud en MS05
+     * @param idIncidente id del incidente en MS05
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record RespuestaMs05(String id) {
+    record RespuestaMs05(String idIncidente) {
     }
 }

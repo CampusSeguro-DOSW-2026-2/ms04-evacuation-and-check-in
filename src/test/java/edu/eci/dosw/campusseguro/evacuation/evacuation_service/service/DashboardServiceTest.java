@@ -13,7 +13,6 @@ import static org.mockito.Mockito.when;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -35,6 +34,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.PoblacionObjetivoClient;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.DatosUsuario;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.UsuarioNombresClient;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.ZonasBrigadistaClient;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.ZonasBrigadistaClient.ZonasAsignadas;
@@ -60,7 +60,7 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.Checki
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.EventoRepository;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.SolicitudAsistenciaRepository;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.RequesterIdentity;
-import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.Rol;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.IdentidadesDePrueba;
 
 /**
  * Lógica de RF-MS04-06 (consolidar el estado del evento y listar personas por estado y punto de encuentro) y de
@@ -123,6 +123,26 @@ class DashboardServiceTest {
     private DashboardService service;
 
     /**
+     * Correo de prueba de una persona, derivado de su nombre
+     *
+     * @param nombre nombre completo
+     * @return el correo institucional de prueba
+     */
+    private static String correo(String nombre) {
+        return nombre.toLowerCase().replace(' ', '.') + "@escuelaing.edu.co";
+    }
+
+    /**
+     * Datos que entrega MS01 para una persona de prueba
+     *
+     * @param nombre nombre completo
+     * @return el nombre y su correo de prueba
+     */
+    private static DatosUsuario datos(String nombre) {
+        return new DatosUsuario(nombre, correo(nombre));
+    }
+
+    /**
      * Crea el service con el reloj fijo
      */
     @BeforeEach
@@ -163,8 +183,8 @@ class DashboardServiceTest {
      * @param roles roles del solicitante
      * @return la identidad
      */
-    private RequesterIdentity con(Rol... roles) {
-        return new RequesterIdentity(BRIGADISTA, EnumSet.of(roles[0], roles));
+    private RequesterIdentity con(String... roles) {
+        return IdentidadesDePrueba.identidad(BRIGADISTA, roles);
     }
 
     // ---------------------------------------------------------------- consolidado
@@ -180,7 +200,7 @@ class DashboardServiceTest {
                 new Fila("SAFE", PUNTO_A, 7), new Fila("SAFE", PUNTO_B, 3), new Fila("EVACUATING", null, 4),
                 new Fila("NEEDS_ASSISTANCE", null, 2), new Fila("OFF_CAMPUS", null, 5)));
 
-        Consolidado consolidado = service.consolidado(EVENTO, con(Rol.COORDINADOR));
+        Consolidado consolidado = service.consolidado(EVENTO, con("COORDINADOR"));
 
         assertEquals(EVENTO, consolidado.eventoId());
         assertEquals(EstadoEvento.EN_EJECUCION, consolidado.estadoEvento());
@@ -206,7 +226,7 @@ class DashboardServiceTest {
         when(eventos.findById(EVENTO)).thenReturn(Optional.of(evento(EstadoEvento.EN_EJECUCION)));
         when(checkins.contarVigentes(EVENTO, false, NADA, NADA, NADA)).thenReturn(List.of());
 
-        Consolidado consolidado = service.consolidado(EVENTO, con(Rol.COORDINADOR));
+        Consolidado consolidado = service.consolidado(EVENTO, con("COORDINADOR"));
 
         assertEquals(Instant.parse("2026-11-20T15:10:00.123Z"), consolidado.calculadoEn());
     }
@@ -219,7 +239,7 @@ class DashboardServiceTest {
         when(eventos.findById(EVENTO)).thenReturn(Optional.of(evento(EstadoEvento.PROGRAMADO)));
         when(checkins.contarVigentes(EVENTO, false, NADA, NADA, NADA)).thenReturn(List.of());
 
-        Consolidado consolidado = service.consolidado(EVENTO, con(Rol.ORGANIZADOR));
+        Consolidado consolidado = service.consolidado(EVENTO, con("ORGANIZADOR"));
 
         assertEquals(0, consolidado.totalesPorEstado().safe());
         assertEquals(0, consolidado.totalesPorEstado().evacuating());
@@ -240,7 +260,7 @@ class DashboardServiceTest {
         when(eventos.findById(EVENTO)).thenReturn(Optional.of(evento(estado)));
         when(checkins.contarVigentes(EVENTO, false, NADA, NADA, NADA)).thenReturn(List.of());
 
-        Consolidado consolidado = service.consolidado(EVENTO, con(Rol.AUDITOR));
+        Consolidado consolidado = service.consolidado(EVENTO, con("AUDITOR"));
 
         assertEquals(estado, consolidado.estadoEvento());
     }
@@ -251,8 +271,8 @@ class DashboardServiceTest {
      * @param rol rol con acceso a todo el evento
      */
     @ParameterizedTest
-    @EnumSource(value = Rol.class, names = { "COORDINADOR", "ORGANIZADOR", "AUDITOR" })
-    void consolidadoNoRestringeANingunRolConAccesoATodoElEvento(Rol rol) {
+    @ValueSource(strings = { "COORDINADOR", "ORGANIZADOR", "AUDITOR" })
+    void consolidadoNoRestringeANingunRolConAccesoATodoElEvento(String rol) {
         when(eventos.findById(EVENTO)).thenReturn(Optional.of(evento(EstadoEvento.EN_EJECUCION)));
         when(checkins.contarVigentes(EVENTO, false, NADA, NADA, NADA)).thenReturn(List.of());
 
@@ -269,7 +289,7 @@ class DashboardServiceTest {
         when(eventos.findById(EVENTO)).thenReturn(Optional.empty());
 
         ApiException error = assertThrows(ApiException.class,
-                () -> service.consolidado(EVENTO, con(Rol.BRIGADISTA)));
+                () -> service.consolidado(EVENTO, con("BRIGADISTA")));
 
         assertEquals(ErrorCode.NOT_FOUND, error.getCode());
         assertEquals(DashboardService.EVENTO_NO_ENCONTRADO, error.getMessage());
@@ -282,9 +302,9 @@ class DashboardServiceTest {
     @Test
     void consolidadoDelBrigadistaCuentaSoloSusZonas() {
         ZonasAsignadas zonas = new ZonasAsignadas(Set.of(EDIFICIO), Set.of(ESPACIO), Set.of(PUNTO_A));
-        RequesterIdentity brigadista = con(Rol.BRIGADISTA);
+        RequesterIdentity brigadista = con("BRIGADISTA");
         when(eventos.findById(EVENTO)).thenReturn(Optional.of(evento(EstadoEvento.EN_EJECUCION)));
-        when(zonasBrigadista.zonasDe(brigadista)).thenReturn(zonas);
+        when(zonasBrigadista.zonasDe(brigadista, EVENTO)).thenReturn(zonas);
         when(checkins.contarVigentes(EVENTO, true, Set.of(PUNTO_A), Set.of(EDIFICIO), Set.of(ESPACIO)))
                 .thenReturn(List.of(new Fila("SAFE", PUNTO_A, 6), new Fila("NEEDS_ASSISTANCE", null, 1)));
 
@@ -306,7 +326,41 @@ class DashboardServiceTest {
         when(eventos.findById(EVENTO)).thenReturn(Optional.of(evento(EstadoEvento.EN_EJECUCION)));
         when(checkins.contarVigentes(EVENTO, false, NADA, NADA, NADA)).thenReturn(List.of());
 
-        service.consolidado(EVENTO, con(Rol.BRIGADISTA, Rol.COORDINADOR));
+        service.consolidado(EVENTO, con("BRIGADISTA", "COORDINADOR"));
+
+        verifyNoInteractions(zonasBrigadista);
+    }
+
+    /**
+     * La restricción se decide por permisos y no por el nombre del rol (MR-07): un rol creado por el administrador
+     * con ms04:dashboard:read y sin ms04:history:read queda limitado a sus zonas, como el BRIGADISTA
+     */
+    @Test
+    void unRolNuevoConDashboardSinHistorialSeRestringeASusZonas() {
+        RequesterIdentity jefeDePiso = new RequesterIdentity(BRIGADISTA, Set.of("JEFE_DE_PISO"),
+                Set.of("ms04:dashboard:read"));
+        ZonasAsignadas zonas = new ZonasAsignadas(Set.of(), Set.of(), Set.of(PUNTO_A));
+        when(eventos.findById(EVENTO)).thenReturn(Optional.of(evento(EstadoEvento.EN_EJECUCION)));
+        when(zonasBrigadista.zonasDe(jefeDePiso, EVENTO)).thenReturn(zonas);
+        when(checkins.contarVigentes(EVENTO, true, Set.of(PUNTO_A), Set.of(), Set.of())).thenReturn(List.of());
+
+        service.consolidado(EVENTO, jefeDePiso);
+
+        verify(zonasBrigadista).zonasDe(jefeDePiso, EVENTO);
+    }
+
+    /**
+     * Si el administrador le da ms04:history:read al rol BRIGADISTA, ese usuario ve todo el evento: el nombre del
+     * rol no decide la restricción
+     */
+    @Test
+    void unBrigadistaConHistorialVeTodoElEvento() {
+        RequesterIdentity brigadista = new RequesterIdentity(BRIGADISTA, Set.of("BRIGADISTA"),
+                Set.of("ms04:dashboard:read", "ms04:history:read"));
+        when(eventos.findById(EVENTO)).thenReturn(Optional.of(evento(EstadoEvento.EN_EJECUCION)));
+        when(checkins.contarVigentes(EVENTO, false, NADA, NADA, NADA)).thenReturn(List.of());
+
+        service.consolidado(EVENTO, brigadista);
 
         verifyNoInteractions(zonasBrigadista);
     }
@@ -316,9 +370,9 @@ class DashboardServiceTest {
      */
     @Test
     void consolidadoDeBrigadistaConUnRolDeLaComunidadSigueRestringido() {
-        RequesterIdentity brigadista = con(Rol.BRIGADISTA, Rol.ESTUDIANTE);
+        RequesterIdentity brigadista = con("BRIGADISTA", "ESTUDIANTE");
         when(eventos.findById(EVENTO)).thenReturn(Optional.of(evento(EstadoEvento.EN_EJECUCION)));
-        when(zonasBrigadista.zonasDe(brigadista)).thenReturn(new ZonasAsignadas(NADA, NADA, NADA));
+        when(zonasBrigadista.zonasDe(brigadista, EVENTO)).thenReturn(new ZonasAsignadas(NADA, NADA, NADA));
         when(checkins.contarVigentes(EVENTO, true, NADA, NADA, NADA)).thenReturn(List.of());
 
         Consolidado consolidado = service.consolidado(EVENTO, brigadista);
@@ -331,9 +385,9 @@ class DashboardServiceTest {
      */
     @Test
     void consolidadoDelBrigadistaSinZonasDeMs05Responde503() {
-        RequesterIdentity brigadista = con(Rol.BRIGADISTA);
+        RequesterIdentity brigadista = con("BRIGADISTA");
         when(eventos.findById(EVENTO)).thenReturn(Optional.of(evento(EstadoEvento.EN_EJECUCION)));
-        when(zonasBrigadista.zonasDe(brigadista)).thenThrow(ApiException.dependenciaNoDisponible());
+        when(zonasBrigadista.zonasDe(brigadista, EVENTO)).thenThrow(ApiException.dependenciaNoDisponible());
 
         ApiException error = assertThrows(ApiException.class, () -> service.consolidado(EVENTO, brigadista));
 
@@ -354,13 +408,15 @@ class DashboardServiceTest {
                 PageRequest.of(1, 2), 5);
         when(checkins.buscarVigentes(EVENTO, null, null, false, NADA, NADA, NADA, PageRequest.of(1, 2)))
                 .thenReturn(pagina);
-        when(nombres.nombresDe(List.of(ANA, LUIS))).thenReturn(Map.of(ANA, "Ana Pérez", LUIS, "Luis Rojas"));
+        when(nombres.datosDe(List.of(ANA, LUIS)))
+                .thenReturn(Map.of(ANA, datos("Ana Pérez"), LUIS, datos("Luis Rojas")));
 
-        PageResponse<CheckinResumen> respuesta = service.personas(EVENTO, null, null, 1, 2, con(Rol.COORDINADOR));
+        PageResponse<CheckinResumen> respuesta = service.personas(EVENTO, null, null, 1, 2, con("COORDINADOR"));
 
         assertEquals(List.of(
-                new CheckinResumen(ANA, "Ana Pérez", EstadoCheckin.SAFE, PUNTO_A, REGISTRADO),
-                new CheckinResumen(LUIS, "Luis Rojas", EstadoCheckin.EVACUATING, null, REGISTRADO)),
+                new CheckinResumen(ANA, "Ana Pérez", correo("Ana Pérez"), EstadoCheckin.SAFE, PUNTO_A, REGISTRADO),
+                new CheckinResumen(LUIS, "Luis Rojas", correo("Luis Rojas"), EstadoCheckin.EVACUATING, null,
+                        REGISTRADO)),
                 respuesta.contenido());
         assertEquals(1, respuesta.page());
         assertEquals(2, respuesta.size());
@@ -378,9 +434,9 @@ class DashboardServiceTest {
         when(checkins.buscarVigentes(EVENTO, null, null, false, NADA, NADA, NADA, PageRequest.of(0, 20)))
                 .thenReturn(new PageImpl<>(List.of(checkin(ANA, EstadoCheckin.OFF_CAMPUS, null)),
                         PageRequest.of(0, 20), 1));
-        when(nombres.nombresDe(List.of(ANA))).thenReturn(Map.of());
+        when(nombres.datosDe(List.of(ANA))).thenReturn(Map.of());
 
-        PageResponse<CheckinResumen> respuesta = service.personas(EVENTO, null, null, 0, 20, con(Rol.AUDITOR));
+        PageResponse<CheckinResumen> respuesta = service.personas(EVENTO, null, null, 0, 20, con("AUDITOR"));
 
         assertEquals(1, respuesta.contenido().size());
         assertNull(respuesta.contenido().get(0).nombre());
@@ -396,7 +452,7 @@ class DashboardServiceTest {
         when(checkins.buscarVigentes(EVENTO, EstadoCheckin.SAFE, PUNTO_A, false, NADA, NADA, NADA,
                 PageRequest.of(0, 20))).thenReturn(Page.empty(PageRequest.of(0, 20)));
 
-        service.personas(EVENTO, EstadoCheckin.SAFE, PUNTO_A, 0, 20, con(Rol.ORGANIZADOR));
+        service.personas(EVENTO, EstadoCheckin.SAFE, PUNTO_A, 0, 20, con("ORGANIZADOR"));
 
         verify(checkins).buscarVigentes(EVENTO, EstadoCheckin.SAFE, PUNTO_A, false, NADA, NADA, NADA,
                 PageRequest.of(0, 20));
@@ -412,7 +468,7 @@ class DashboardServiceTest {
                 .thenReturn(Page.empty(PageRequest.of(0, 20)));
 
         PageResponse<CheckinResumen> respuesta = service.personas(EVENTO, null, PUNTO_B, 0, 20,
-                con(Rol.COORDINADOR));
+                con("COORDINADOR"));
 
         assertTrue(respuesta.contenido().isEmpty());
         assertEquals(0, respuesta.totalElementos());
@@ -427,7 +483,7 @@ class DashboardServiceTest {
     @EnumSource(value = EstadoCheckin.class, names = { "EVACUATING", "NEEDS_ASSISTANCE", "OFF_CAMPUS" })
     void personasConPuntoYEstadoDistintoDeSafeResponde400(EstadoCheckin estado) {
         ApiException error = assertThrows(ApiException.class,
-                () -> service.personas(EVENTO, estado, PUNTO_A, 0, 20, con(Rol.COORDINADOR)));
+                () -> service.personas(EVENTO, estado, PUNTO_A, 0, 20, con("COORDINADOR")));
 
         assertEquals(ErrorCode.VALIDATION, error.getCode());
         assertEquals("punto_encuentro_id", error.getErrors().get(0).campo());
@@ -443,7 +499,7 @@ class DashboardServiceTest {
         when(eventos.existsById(EVENTO)).thenReturn(false);
 
         ApiException error = assertThrows(ApiException.class,
-                () -> service.personas(EVENTO, null, null, 0, 20, con(Rol.BRIGADISTA)));
+                () -> service.personas(EVENTO, null, null, 0, 20, con("BRIGADISTA")));
 
         assertEquals(ErrorCode.NOT_FOUND, error.getCode());
         assertEquals(DashboardService.EVENTO_NO_ENCONTRADO, error.getMessage());
@@ -455,15 +511,15 @@ class DashboardServiceTest {
      */
     @Test
     void personasDelBrigadistaListaSoloSusZonas() {
-        RequesterIdentity brigadista = con(Rol.BRIGADISTA);
+        RequesterIdentity brigadista = con("BRIGADISTA");
         when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(zonasBrigadista.zonasDe(brigadista))
+        when(zonasBrigadista.zonasDe(brigadista, EVENTO))
                 .thenReturn(new ZonasAsignadas(Set.of(EDIFICIO), Set.of(ESPACIO), Set.of(PUNTO_A)));
         when(checkins.buscarVigentes(EVENTO, null, null, true, Set.of(PUNTO_A), Set.of(EDIFICIO), Set.of(ESPACIO),
                 PageRequest.of(0, 20)))
                 .thenReturn(new PageImpl<>(List.of(checkin(ANA, EstadoCheckin.SAFE, PUNTO_A)),
                         PageRequest.of(0, 20), 1));
-        when(nombres.nombresDe(List.of(ANA))).thenReturn(Map.of(ANA, "Ana Pérez"));
+        when(nombres.datosDe(List.of(ANA))).thenReturn(Map.of(ANA, datos("Ana Pérez")));
 
         PageResponse<CheckinResumen> respuesta = service.personas(EVENTO, null, null, 0, 20, brigadista);
 
@@ -476,9 +532,9 @@ class DashboardServiceTest {
      */
     @Test
     void personasDelBrigadistaSinZonasDeMs05Responde503() {
-        RequesterIdentity brigadista = con(Rol.BRIGADISTA);
+        RequesterIdentity brigadista = con("BRIGADISTA");
         when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(zonasBrigadista.zonasDe(brigadista)).thenThrow(ApiException.dependenciaNoDisponible());
+        when(zonasBrigadista.zonasDe(brigadista, EVENTO)).thenThrow(ApiException.dependenciaNoDisponible());
 
         ApiException error = assertThrows(ApiException.class,
                 () -> service.personas(EVENTO, null, null, 0, 20, brigadista));
@@ -500,14 +556,14 @@ class DashboardServiceTest {
                 .thenReturn(Page.empty(PageRequest.of(pagina, 20)));
 
         PageResponse<CheckinResumen> respuesta = service.personas(EVENTO, null, null, pagina, 20,
-                con(Rol.COORDINADOR));
+                con("COORDINADOR"));
 
         assertTrue(respuesta.contenido().isEmpty());
         assertEquals(pagina, respuesta.page());
         assertEquals(0, respuesta.totalElementos());
         assertEquals(0, respuesta.totalPaginas());
-        verify(nombres).nombresDe(List.of());
-        verify(zonasBrigadista, never()).zonasDe(any());
+        verify(nombres).datosDe(List.of());
+        verify(zonasBrigadista, never()).zonasDe(any(), any());
     }
 
     // ---------------------------------------------------------------- asistencia
@@ -558,16 +614,19 @@ class DashboardServiceTest {
                         checkinAsistencia(ANA, TipoUbicacion.EDIFICIO, EDIFICIO, PRIMER_REPORTE),
                         checkinAsistencia(LUIS, TipoUbicacion.ESPACIO, ESPACIO, SEGUNDO_REPORTE)),
                         PageRequest.of(0, 20), 2));
-        when(nombres.nombresDe(List.of(ANA, LUIS))).thenReturn(Map.of(ANA, "Ana Pérez", LUIS, "Luis Gómez"));
+        when(nombres.datosDe(List.of(ANA, LUIS)))
+                .thenReturn(Map.of(ANA, datos("Ana Pérez"), LUIS, datos("Luis Gómez")));
         when(solicitudes.findByEventoIdAndUsuarioIdIn(EVENTO, List.of(ANA, LUIS))).thenReturn(List.of(
                 solicitud(LUIS, null, EstadoEnvio.PENDIENTE_ENVIO), solicitud(ANA, "SOL-2026-0042", EstadoEnvio.ENVIADA)));
 
-        PageResponse<PersonaAsistencia> respuesta = service.asistencia(EVENTO, 0, 20, con(Rol.COORDINADOR));
+        PageResponse<PersonaAsistencia> respuesta = service.asistencia(EVENTO, 0, 20, con("COORDINADOR"));
 
         assertEquals(2, respuesta.totalElementos());
-        assertEquals(List.of(new PersonaAsistencia(ANA, "Ana Pérez", new Ubicacion(TipoUbicacion.EDIFICIO, EDIFICIO),
+        assertEquals(List.of(new PersonaAsistencia(ANA, "Ana Pérez", correo("Ana Pérez"),
+                new Ubicacion(TipoUbicacion.EDIFICIO, EDIFICIO),
                 PRIMER_REPORTE, new SolicitudAsistenciaResumen("SOL-2026-0042", EstadoEnvio.ENVIADA)),
-                new PersonaAsistencia(LUIS, "Luis Gómez", new Ubicacion(TipoUbicacion.ESPACIO, ESPACIO),
+                new PersonaAsistencia(LUIS, "Luis Gómez", correo("Luis Gómez"),
+                        new Ubicacion(TipoUbicacion.ESPACIO, ESPACIO),
                         SEGUNDO_REPORTE, new SolicitudAsistenciaResumen(null, EstadoEnvio.PENDIENTE_ENVIO))),
                 respuesta.contenido());
         verifyNoInteractions(zonasBrigadista);
@@ -593,7 +652,7 @@ class DashboardServiceTest {
         when(solicitudes.findByEventoIdAndUsuarioIdIn(EVENTO, List.of(ANA)))
                 .thenReturn(List.of(solicitud(ANA, solicitudMs05, estadoEnvio)));
 
-        PageResponse<PersonaAsistencia> respuesta = service.asistencia(EVENTO, 0, 20, con(Rol.COORDINADOR));
+        PageResponse<PersonaAsistencia> respuesta = service.asistencia(EVENTO, 0, 20, con("COORDINADOR"));
 
         assertEquals(new SolicitudAsistenciaResumen(solicitudMs05, estadoEnvio),
                 respuesta.contenido().get(0).solicitudAsistencia());
@@ -610,11 +669,11 @@ class DashboardServiceTest {
                 .thenReturn(new PageImpl<>(
                         List.of(checkinAsistencia(ANA, TipoUbicacion.EDIFICIO, EDIFICIO, PRIMER_REPORTE)),
                         PageRequest.of(0, 20), 1));
-        when(nombres.nombresDe(List.of(ANA))).thenReturn(Map.of());
+        when(nombres.datosDe(List.of(ANA))).thenReturn(Map.of());
         when(solicitudes.findByEventoIdAndUsuarioIdIn(EVENTO, List.of(ANA)))
                 .thenReturn(List.of(solicitud(ANA, "SOL-2026-0042", EstadoEnvio.ENVIADA)));
 
-        PageResponse<PersonaAsistencia> respuesta = service.asistencia(EVENTO, 0, 20, con(Rol.COORDINADOR));
+        PageResponse<PersonaAsistencia> respuesta = service.asistencia(EVENTO, 0, 20, con("COORDINADOR"));
 
         assertNull(respuesta.contenido().get(0).nombre());
         assertEquals(ANA, respuesta.contenido().get(0).usuarioId());
@@ -633,7 +692,7 @@ class DashboardServiceTest {
                         PageRequest.of(0, 20), 1));
         when(solicitudes.findByEventoIdAndUsuarioIdIn(EVENTO, List.of(ANA))).thenReturn(List.of());
 
-        PageResponse<PersonaAsistencia> respuesta = service.asistencia(EVENTO, 0, 20, con(Rol.COORDINADOR));
+        PageResponse<PersonaAsistencia> respuesta = service.asistencia(EVENTO, 0, 20, con("COORDINADOR"));
 
         assertEquals(1, respuesta.totalElementos());
         assertNull(respuesta.contenido().get(0).solicitudAsistencia());
@@ -651,14 +710,14 @@ class DashboardServiceTest {
         when(checkins.buscarVigentesConAsistencia(EVENTO, false, NADA, NADA, NADA, PageRequest.of(pagina, 20)))
                 .thenReturn(Page.empty(PageRequest.of(pagina, 20)));
 
-        PageResponse<PersonaAsistencia> respuesta = service.asistencia(EVENTO, pagina, 20, con(Rol.COORDINADOR));
+        PageResponse<PersonaAsistencia> respuesta = service.asistencia(EVENTO, pagina, 20, con("COORDINADOR"));
 
         assertTrue(respuesta.contenido().isEmpty());
         assertEquals(pagina, respuesta.page());
         assertEquals(0, respuesta.totalElementos());
         assertEquals(0, respuesta.totalPaginas());
         verify(solicitudes, never()).findByEventoIdAndUsuarioIdIn(any(), any());
-        verify(zonasBrigadista, never()).zonasDe(any());
+        verify(zonasBrigadista, never()).zonasDe(any(), any());
     }
 
     /**
@@ -674,7 +733,7 @@ class DashboardServiceTest {
         when(solicitudes.findByEventoIdAndUsuarioIdIn(EVENTO, List.of(LUIS)))
                 .thenReturn(List.of(solicitud(LUIS, null, EstadoEnvio.RECHAZADA)));
 
-        PageResponse<PersonaAsistencia> respuesta = service.asistencia(EVENTO, 1, 2, con(Rol.COORDINADOR));
+        PageResponse<PersonaAsistencia> respuesta = service.asistencia(EVENTO, 1, 2, con("COORDINADOR"));
 
         assertEquals(1, respuesta.page());
         assertEquals(2, respuesta.size());
@@ -688,9 +747,9 @@ class DashboardServiceTest {
      */
     @Test
     void asistenciaDelBrigadistaListaSoloSusZonas() {
-        RequesterIdentity brigadista = con(Rol.BRIGADISTA);
+        RequesterIdentity brigadista = con("BRIGADISTA");
         when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(zonasBrigadista.zonasDe(brigadista))
+        when(zonasBrigadista.zonasDe(brigadista, EVENTO))
                 .thenReturn(new ZonasAsignadas(Set.of(EDIFICIO), Set.of(ESPACIO), Set.of(PUNTO_A)));
         when(checkins.buscarVigentesConAsistencia(EVENTO, true, Set.of(PUNTO_A), Set.of(EDIFICIO), Set.of(ESPACIO),
                 PageRequest.of(0, 20)))
@@ -712,15 +771,15 @@ class DashboardServiceTest {
      * @param otro rol que ve todo el evento
      */
     @ParameterizedTest
-    @EnumSource(value = Rol.class, names = { "COORDINADOR", "ORGANIZADOR", "AUDITOR" })
-    void asistenciaDeBrigadistaConOtroRolConAccesoNoSeRestringe(Rol otro) {
+    @ValueSource(strings = { "COORDINADOR", "ORGANIZADOR", "AUDITOR" })
+    void asistenciaDeBrigadistaConOtroRolConAccesoNoSeRestringe(String otro) {
         when(eventos.existsById(EVENTO)).thenReturn(true);
         when(checkins.buscarVigentesConAsistencia(EVENTO, false, NADA, NADA, NADA, PageRequest.of(0, 20)))
                 .thenReturn(Page.empty(PageRequest.of(0, 20)));
 
-        service.asistencia(EVENTO, 0, 20, con(Rol.BRIGADISTA, otro));
+        service.asistencia(EVENTO, 0, 20, con("BRIGADISTA", otro));
 
-        verify(zonasBrigadista, never()).zonasDe(any());
+        verify(zonasBrigadista, never()).zonasDe(any(), any());
     }
 
     /**
@@ -728,9 +787,9 @@ class DashboardServiceTest {
      */
     @Test
     void asistenciaDelBrigadistaSinZonasDeMs05Responde503() {
-        RequesterIdentity brigadista = con(Rol.BRIGADISTA);
+        RequesterIdentity brigadista = con("BRIGADISTA");
         when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(zonasBrigadista.zonasDe(brigadista)).thenThrow(ApiException.dependenciaNoDisponible());
+        when(zonasBrigadista.zonasDe(brigadista, EVENTO)).thenThrow(ApiException.dependenciaNoDisponible());
 
         ApiException error = assertThrows(ApiException.class, () -> service.asistencia(EVENTO, 0, 20, brigadista));
 
@@ -744,8 +803,8 @@ class DashboardServiceTest {
      * @param rol rol del solicitante
      */
     @ParameterizedTest
-    @EnumSource(value = Rol.class, names = { "BRIGADISTA", "COORDINADOR", "ORGANIZADOR", "AUDITOR" })
-    void asistenciaDeUnEventoInexistenteResponde404(Rol rol) {
+    @ValueSource(strings = { "BRIGADISTA", "COORDINADOR", "ORGANIZADOR", "AUDITOR" })
+    void asistenciaDeUnEventoInexistenteResponde404(String rol) {
         when(eventos.existsById(EVENTO)).thenReturn(false);
         RequesterIdentity requester = con(rol);
 
@@ -772,7 +831,7 @@ class DashboardServiceTest {
         when(solicitudes.findByEventoIdAndUsuarioIdIn(EVENTO, List.of(ANA)))
                 .thenReturn(List.of(solicitud(ANA, "SOL-2026-0042", EstadoEnvio.ENVIADA)));
 
-        PageResponse<PersonaAsistencia> respuesta = service.asistencia(EVENTO, 0, 20, con(Rol.COORDINADOR));
+        PageResponse<PersonaAsistencia> respuesta = service.asistencia(EVENTO, 0, 20, con("COORDINADOR"));
 
         assertEquals(1, respuesta.totalElementos());
     }
@@ -810,17 +869,18 @@ class DashboardServiceTest {
      */
     @Test
     void pendientesSonLaPoblacionMenosLosQueReportaron() {
-        RequesterIdentity coordinador = con(Rol.COORDINADOR);
+        RequesterIdentity coordinador = con("COORDINADOR");
         when(eventos.findById(EVENTO)).thenReturn(Optional.of(eventoConvocado()));
         when(poblacionObjetivo.usuariosActivosPorRoles(ROLES, INICIO, coordinador))
                 .thenReturn(Optional.of(Set.of(usuario(1), usuario(2), usuario(3), usuario(4))));
         when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of(usuario(2), usuario(4)));
-        when(nombres.nombresDe(List.of(usuario(1), usuario(3))))
-                .thenReturn(Map.of(usuario(1), "Ana Pérez", usuario(3), "Luis Gómez"));
+        when(nombres.datosDe(List.of(usuario(1), usuario(3))))
+                .thenReturn(Map.of(usuario(1), datos("Ana Pérez"), usuario(3), datos("Luis Gómez")));
 
         PageResponse<Pendiente> respuesta = service.pendientes(EVENTO, 0, 20, coordinador);
 
-        assertEquals(List.of(new Pendiente(usuario(1), "Ana Pérez"), new Pendiente(usuario(3), "Luis Gómez")),
+        assertEquals(List.of(new Pendiente(usuario(1), "Ana Pérez", correo("Ana Pérez")),
+                new Pendiente(usuario(3), "Luis Gómez", correo("Luis Gómez"))),
                 respuesta.contenido());
         assertEquals(2, respuesta.totalElementos());
         assertEquals(1, respuesta.totalPaginas());
@@ -834,12 +894,12 @@ class DashboardServiceTest {
      */
     @Test
     void pendientesSalenOrdenadosPorIdDeUsuario() {
-        RequesterIdentity auditor = con(Rol.AUDITOR);
+        RequesterIdentity auditor = con("AUDITOR");
         when(eventos.findById(EVENTO)).thenReturn(Optional.of(eventoConvocado()));
         when(poblacionObjetivo.usuariosActivosPorRoles(ROLES, INICIO, auditor))
                 .thenReturn(Optional.of(Set.of(usuario(9), usuario(3), usuario(7), usuario(1))));
         when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of());
-        when(nombres.nombresDe(List.of(usuario(1), usuario(3), usuario(7), usuario(9)))).thenReturn(Map.of());
+        when(nombres.datosDe(List.of(usuario(1), usuario(3), usuario(7), usuario(9)))).thenReturn(Map.of());
 
         PageResponse<Pendiente> respuesta = service.pendientes(EVENTO, 0, 20, auditor);
 
@@ -852,12 +912,12 @@ class DashboardServiceTest {
      */
     @Test
     void sinCheckinsTodaLaPoblacionEsPendiente() {
-        RequesterIdentity organizador = con(Rol.ORGANIZADOR);
+        RequesterIdentity organizador = con("ORGANIZADOR");
         when(eventos.findById(EVENTO)).thenReturn(Optional.of(eventoConvocado()));
         when(poblacionObjetivo.usuariosActivosPorRoles(ROLES, INICIO, organizador))
                 .thenReturn(Optional.of(Set.of(usuario(1), usuario(2))));
         when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of());
-        when(nombres.nombresDe(List.of(usuario(1), usuario(2)))).thenReturn(Map.of());
+        when(nombres.datosDe(List.of(usuario(1), usuario(2)))).thenReturn(Map.of());
 
         PageResponse<Pendiente> respuesta = service.pendientes(EVENTO, 0, 20, organizador);
 
@@ -869,12 +929,12 @@ class DashboardServiceTest {
      */
     @Test
     void siTodosReportaronResponde200ConTotalCeroYListaVacia() {
-        RequesterIdentity coordinador = con(Rol.COORDINADOR);
+        RequesterIdentity coordinador = con("COORDINADOR");
         when(eventos.findById(EVENTO)).thenReturn(Optional.of(eventoConvocado()));
         when(poblacionObjetivo.usuariosActivosPorRoles(ROLES, INICIO, coordinador))
                 .thenReturn(Optional.of(Set.of(usuario(1), usuario(2))));
         when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of(usuario(1), usuario(2)));
-        when(nombres.nombresDe(List.of())).thenReturn(Map.of());
+        when(nombres.datosDe(List.of())).thenReturn(Map.of());
 
         PageResponse<Pendiente> respuesta = service.pendientes(EVENTO, 0, 20, coordinador);
 
@@ -888,12 +948,12 @@ class DashboardServiceTest {
      */
     @Test
     void quienReportoSinEstarEnLaPoblacionNoAlteraLosPendientes() {
-        RequesterIdentity coordinador = con(Rol.COORDINADOR);
+        RequesterIdentity coordinador = con("COORDINADOR");
         when(eventos.findById(EVENTO)).thenReturn(Optional.of(eventoConvocado()));
         when(poblacionObjetivo.usuariosActivosPorRoles(ROLES, INICIO, coordinador))
                 .thenReturn(Optional.of(Set.of(usuario(1), usuario(2))));
         when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of(usuario(2), usuario(8)));
-        when(nombres.nombresDe(List.of(usuario(1)))).thenReturn(Map.of());
+        when(nombres.datosDe(List.of(usuario(1)))).thenReturn(Map.of());
 
         PageResponse<Pendiente> respuesta = service.pendientes(EVENTO, 0, 20, coordinador);
 
@@ -906,11 +966,11 @@ class DashboardServiceTest {
      */
     @Test
     void sinPoblacionObjetivoLaListaEsVacia() {
-        RequesterIdentity coordinador = con(Rol.COORDINADOR);
+        RequesterIdentity coordinador = con("COORDINADOR");
         when(eventos.findById(EVENTO)).thenReturn(Optional.of(eventoConvocado()));
         when(poblacionObjetivo.usuariosActivosPorRoles(ROLES, INICIO, coordinador)).thenReturn(Optional.of(Set.of()));
         when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of());
-        when(nombres.nombresDe(List.of())).thenReturn(Map.of());
+        when(nombres.datosDe(List.of())).thenReturn(Map.of());
 
         PageResponse<Pendiente> respuesta = service.pendientes(EVENTO, 0, 20, coordinador);
 
@@ -924,16 +984,16 @@ class DashboardServiceTest {
      */
     @Test
     void pendientesSePaginan() {
-        RequesterIdentity coordinador = con(Rol.COORDINADOR);
+        RequesterIdentity coordinador = con("COORDINADOR");
         when(eventos.findById(EVENTO)).thenReturn(Optional.of(eventoConvocado()));
         when(poblacionObjetivo.usuariosActivosPorRoles(ROLES, INICIO, coordinador)).thenReturn(Optional.of(
                 Set.of(usuario(1), usuario(2), usuario(3), usuario(4), usuario(5))));
         when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of());
-        when(nombres.nombresDe(List.of(usuario(3), usuario(4)))).thenReturn(Map.of(usuario(3), "Tres"));
+        when(nombres.datosDe(List.of(usuario(3), usuario(4)))).thenReturn(Map.of(usuario(3), datos("Tres")));
 
         PageResponse<Pendiente> respuesta = service.pendientes(EVENTO, 1, 2, coordinador);
 
-        assertEquals(List.of(new Pendiente(usuario(3), "Tres"), new Pendiente(usuario(4), null)),
+        assertEquals(List.of(new Pendiente(usuario(3), "Tres", correo("Tres")), new Pendiente(usuario(4), null, null)),
                 respuesta.contenido());
         assertEquals(5, respuesta.totalElementos());
         assertEquals(3, respuesta.totalPaginas());
@@ -949,12 +1009,12 @@ class DashboardServiceTest {
     @ParameterizedTest
     @ValueSource(ints = { 3, 100, Integer.MAX_VALUE })
     void unaPaginaMasAllaDeLaUltimaDevuelveLaListaVaciaConLosTotales(int pagina) {
-        RequesterIdentity coordinador = con(Rol.COORDINADOR);
+        RequesterIdentity coordinador = con("COORDINADOR");
         when(eventos.findById(EVENTO)).thenReturn(Optional.of(eventoConvocado()));
         when(poblacionObjetivo.usuariosActivosPorRoles(ROLES, INICIO, coordinador)).thenReturn(Optional.of(
                 Set.of(usuario(1), usuario(2), usuario(3), usuario(4), usuario(5))));
         when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of());
-        when(nombres.nombresDe(List.of())).thenReturn(Map.of());
+        when(nombres.datosDe(List.of())).thenReturn(Map.of());
 
         PageResponse<Pendiente> respuesta = service.pendientes(EVENTO, pagina, 2, coordinador);
 
@@ -968,12 +1028,12 @@ class DashboardServiceTest {
      */
     @Test
     void sinNombresDeMs01LosPendientesSalenConNombreNulo() {
-        RequesterIdentity coordinador = con(Rol.COORDINADOR);
+        RequesterIdentity coordinador = con("COORDINADOR");
         when(eventos.findById(EVENTO)).thenReturn(Optional.of(eventoConvocado()));
         when(poblacionObjetivo.usuariosActivosPorRoles(ROLES, INICIO, coordinador))
                 .thenReturn(Optional.of(Set.of(usuario(1))));
         when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of());
-        when(nombres.nombresDe(List.of(usuario(1)))).thenReturn(Map.of());
+        when(nombres.datosDe(List.of(usuario(1)))).thenReturn(Map.of());
 
         PageResponse<Pendiente> respuesta = service.pendientes(EVENTO, 0, 20, coordinador);
 
@@ -986,7 +1046,7 @@ class DashboardServiceTest {
      */
     @Test
     void sinPoblacionDeMs01Responde503ConElMensajeDeLaLista() {
-        RequesterIdentity coordinador = con(Rol.COORDINADOR);
+        RequesterIdentity coordinador = con("COORDINADOR");
         when(eventos.findById(EVENTO)).thenReturn(Optional.of(eventoConvocado()));
         when(poblacionObjetivo.usuariosActivosPorRoles(ROLES, INICIO, coordinador)).thenReturn(Optional.empty());
 
@@ -1004,7 +1064,7 @@ class DashboardServiceTest {
     void elBrigadistaRecibeUnaListaVaciaSinConsultarAMs01() {
         when(eventos.findById(EVENTO)).thenReturn(Optional.of(eventoConvocado()));
 
-        PageResponse<Pendiente> respuesta = service.pendientes(EVENTO, 0, 20, con(Rol.BRIGADISTA));
+        PageResponse<Pendiente> respuesta = service.pendientes(EVENTO, 0, 20, con("BRIGADISTA"));
 
         assertTrue(respuesta.contenido().isEmpty());
         assertEquals(0, respuesta.totalElementos());
@@ -1019,14 +1079,14 @@ class DashboardServiceTest {
      * @param otro rol que ve todo el evento
      */
     @ParameterizedTest
-    @EnumSource(value = Rol.class, names = { "COORDINADOR", "ORGANIZADOR", "AUDITOR" })
-    void quienTambienTieneOtroRolConPermisoVeLosPendientes(Rol otro) {
-        RequesterIdentity solicitante = con(Rol.BRIGADISTA, otro);
+    @ValueSource(strings = { "COORDINADOR", "ORGANIZADOR", "AUDITOR" })
+    void quienTambienTieneOtroRolConPermisoVeLosPendientes(String otro) {
+        RequesterIdentity solicitante = con("BRIGADISTA", otro);
         when(eventos.findById(EVENTO)).thenReturn(Optional.of(eventoConvocado()));
         when(poblacionObjetivo.usuariosActivosPorRoles(ROLES, INICIO, solicitante))
                 .thenReturn(Optional.of(Set.of(usuario(1))));
         when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of());
-        when(nombres.nombresDe(List.of(usuario(1)))).thenReturn(Map.of());
+        when(nombres.datosDe(List.of(usuario(1)))).thenReturn(Map.of());
 
         assertEquals(1, service.pendientes(EVENTO, 0, 20, solicitante).totalElementos());
     }
@@ -1037,8 +1097,8 @@ class DashboardServiceTest {
      * @param rol rol del solicitante
      */
     @ParameterizedTest
-    @EnumSource(value = Rol.class, names = { "BRIGADISTA", "COORDINADOR" })
-    void pendientesDeUnEventoInexistenteResponde404(Rol rol) {
+    @ValueSource(strings = { "BRIGADISTA", "COORDINADOR" })
+    void pendientesDeUnEventoInexistenteResponde404(String rol) {
         when(eventos.findById(EVENTO)).thenReturn(Optional.empty());
 
         ApiException error = assertThrows(ApiException.class, () -> service.pendientes(EVENTO, 0, 20, con(rol)));
@@ -1056,14 +1116,14 @@ class DashboardServiceTest {
     @ParameterizedTest
     @EnumSource(EstadoEvento.class)
     void pendientesFuncionanConElEventoEnCualquierEstado(EstadoEvento estado) {
-        RequesterIdentity coordinador = con(Rol.COORDINADOR);
+        RequesterIdentity coordinador = con("COORDINADOR");
         Evento evento = eventoConvocado();
         evento.setEstado(estado);
         when(eventos.findById(EVENTO)).thenReturn(Optional.of(evento));
         when(poblacionObjetivo.usuariosActivosPorRoles(ROLES, INICIO, coordinador))
                 .thenReturn(Optional.of(Set.of(usuario(1))));
         when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of());
-        when(nombres.nombresDe(List.of(usuario(1)))).thenReturn(Map.of());
+        when(nombres.datosDe(List.of(usuario(1)))).thenReturn(Map.of());
 
         assertEquals(1, service.pendientes(EVENTO, 0, 20, coordinador).totalElementos());
     }
@@ -1079,14 +1139,14 @@ class DashboardServiceTest {
     @CsvSource(value = { "2026-11-20T14:00:00Z,2026-11-20T14:00:00Z", "2026-11-20T16:00:00Z,2026-11-20T15:10:00Z",
             "null,2026-11-20T15:10:00Z" }, nullValues = "null")
     void elCorteDeLaPoblacionEsElInicioOElMomentoDeLaConsulta(Instant inicio, Instant corte) {
-        RequesterIdentity coordinador = con(Rol.COORDINADOR);
+        RequesterIdentity coordinador = con("COORDINADOR");
         Evento evento = eventoConvocado();
         evento.setFechaInicio(inicio);
         when(eventos.findById(EVENTO)).thenReturn(Optional.of(evento));
         when(poblacionObjetivo.usuariosActivosPorRoles(ROLES, corte, coordinador))
                 .thenReturn(Optional.of(Set.of()));
         when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of());
-        when(nombres.nombresDe(List.of())).thenReturn(Map.of());
+        when(nombres.datosDe(List.of())).thenReturn(Map.of());
 
         assertTrue(service.pendientes(EVENTO, 0, 20, coordinador).contenido().isEmpty());
     }

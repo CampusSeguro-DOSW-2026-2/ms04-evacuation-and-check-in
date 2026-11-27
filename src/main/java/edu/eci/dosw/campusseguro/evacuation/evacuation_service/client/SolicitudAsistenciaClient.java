@@ -13,8 +13,11 @@ public interface SolicitudAsistenciaClient {
      *
      * @param solicitud solicitud de MS04; su id viaja como llave de idempotencia para que un reenvío no la duplique
      * @param rolesUsuario roles del usuario para X-User-Role, o null si no se conocen (reenvío periódico)
+     * @param permisosUsuario permisos del usuario para X-User-Permission, o null si no se conocen (reenvío
+     *        periódico). Sin roles y permisos no se propaga identidad: el Gateway exige las tres cabeceras juntas
      * @param correlationId correlation id de la petición, o uno nuevo en el reenvío
      * @return cómo terminó el envío
      */
-    ResultadoEnvioMs05 enviar(SolicitudAsistencia solicitud, String rolesUsuario, String correlationId);
+    ResultadoEnvioMs05 enviar(SolicitudAsistencia solicitud, String rolesUsuario, String permisosUsuario,
+            String correlationId);
 }

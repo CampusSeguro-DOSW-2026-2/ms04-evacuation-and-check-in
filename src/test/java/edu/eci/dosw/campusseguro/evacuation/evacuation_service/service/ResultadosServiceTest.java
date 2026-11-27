@@ -13,7 +13,6 @@ import static org.mockito.Mockito.when;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -49,8 +48,8 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.Checki
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.EventoRepository;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.SolicitudAsistenciaRepository;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.RequesterIdentity;
-import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.Rol;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.PostgresTestcontainerConfig;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.IdentidadesDePrueba;
 import jakarta.persistence.EntityManager;
 
 /**
@@ -66,8 +65,7 @@ class ResultadosServiceTest {
     private static final Instant INICIO = Instant.parse("2026-11-20T15:00:00Z");
     private static final UUID PUNTO_A = UUID.fromString("7a1d4e2b-5c3f-4a8e-b9d0-2e6f1c4a7b35");
     private static final UUID PUNTO_B = UUID.fromString("9b2e5f3c-6d4a-4b9f-80e1-3f7a2d5b8c46");
-    private static final RequesterIdentity ORGANIZADOR = new RequesterIdentity(
-            UUID.fromString("3f6c2a9e-8b1d-4c7a-9e2f-1a5b7c9d0e42"), EnumSet.of(Rol.ORGANIZADOR));
+    private static final RequesterIdentity ORGANIZADOR = IdentidadesDePrueba.identidad(UUID.fromString("3f6c2a9e-8b1d-4c7a-9e2f-1a5b7c9d0e42"), "ORGANIZADOR");
 
     /** Reloj fijo para el corte de la población objetivo */
     @TestConfiguration

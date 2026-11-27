@@ -9,6 +9,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.ErrorResponse.ErrorDetail;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.Escenario;
@@ -39,17 +40,20 @@ public final class EstadoEventoValidator {
     public static final String FALTA_FECHA = "La fecha de inicio es obligatoria para programar el evento.";
     public static final String FECHA_EN_BORRADOR = "Un evento en borrador no lleva fecha de inicio.";
     public static final String FECHA_NO_VALIDA = "Fecha de inicio no válida (ISO-8601 con desfase horario).";
-    public static final String EDIFICIO_NO_VALIDO = "Edificio no válido (1 a 50 caracteres).";
-    public static final String ZONA_NO_VALIDA = "Zona no válida (1 a 50 caracteres).";
+    public static final String EDIFICIO_NO_VALIDO = "Edificio no válido (1 a 100 caracteres).";
+    public static final String ZONA_NO_VALIDA = "Zona no válida (1 a 100 caracteres).";
     public static final String FALTAN_ROLES = "Indique al menos un rol convocado.";
     public static final String ROL_NO_VALIDO = "Rol convocado no válido.";
 
     static final int MAX_NOMBRE = 150;
-    static final int MAX_ESCENARIO = 50;
+    static final int MAX_ESCENARIO = 100;
 
-    /** Roles que pueden reportar su estado y por eso pueden convocarse (RN-MS04-24) */
-    static final Set<String> ROLES_CONVOCABLES = Set.of("ESTUDIANTE", "PROFESOR", "ADMINISTRATIVO", "BRIGADISTA",
-            "COORDINADOR", "ORGANIZADOR");
+    /**
+     * Formato de un nombre de rol (Estándares de Integración, sección 3): mayúsculas, dígitos y guion bajo, empieza con
+     * una letra, de 2 a 30 caracteres. Los roles son datos de MS01 y ya no son un conjunto fijo (sección 6), así que
+     * MS04 acepta como convocado cualquier rol con este formato, también uno creado por el administrador
+     */
+    static final Pattern FORMATO_ROL = Pattern.compile("^[A-Z][A-Z0-9_]{1,29}$");
 
     private EstadoEventoValidator() {
     }
@@ -124,21 +128,18 @@ public final class EstadoEventoValidator {
     }
 
     /**
-     * La fecha llega en ISO-8601 con desfase horario y se guarda en UTC. En un simulacro es obligatoria con
-     * PROGRAMADO y no se envía con BORRADOR (RN-MS04-24). Un evento que no es simulacro queda EN_EJECUCION sea cual
-     * sea el estado enviado y, sin fecha, toma la de recepción (RN-MS04-20), así que esas dos reglas no le aplican.
-     * No se compara con el reloj
+     * La fecha llega en ISO-8601 con desfase horario y se guarda en UTC. Es obligatoria con PROGRAMADO y no se
+     * envía con BORRADOR (RN-MS04-24), sea o no simulacro (RN-MS04-20). No se compara con el reloj
      */
     private static Instant validarFecha(EstadoEventoRequest request, List<ErrorDetail> errores) {
         String texto = request.fechaInicio();
-        boolean noEsSimulacro = Boolean.FALSE.equals(request.simulacro());
         if (texto == null || texto.isBlank()) {
-            if (request.estado() == EstadoEvento.PROGRAMADO && !noEsSimulacro) {
+            if (request.estado() == EstadoEvento.PROGRAMADO) {
                 errores.add(new ErrorDetail(CAMPO_FECHA_INICIO, FALTA_FECHA));
             }
             return null;
         }
-        if (request.estado() == EstadoEvento.BORRADOR && !noEsSimulacro) {
+        if (request.estado() == EstadoEvento.BORRADOR) {
             errores.add(new ErrorDetail(CAMPO_FECHA_INICIO, FECHA_EN_BORRADOR));
             return null;
         }
@@ -167,11 +168,11 @@ public final class EstadoEventoValidator {
         return List.copyOf(normalizados);
     }
 
-    /** Solo roles de la comunidad y sin repetidos (RN-MS04-24) */
+    /** Roles con el formato de rol y sin repetidos (RN-MS04-24 con roles flexibles) */
     private static boolean rolesValidos(List<String> roles) {
         Set<String> vistos = new HashSet<>();
         for (String rol : roles) {
-            if (rol == null || !ROLES_CONVOCABLES.contains(rol) || !vistos.add(rol)) {
+            if (rol == null || !FORMATO_ROL.matcher(rol).matches() || !vistos.add(rol)) {
                 return false;
             }
         }

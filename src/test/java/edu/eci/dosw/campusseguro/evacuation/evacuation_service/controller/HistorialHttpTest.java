@@ -29,6 +29,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.UsuarioNombresClient;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.config.SecurityConfig;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.config.WebMvcConfig;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.Checkin;
@@ -41,6 +42,7 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.Correlat
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.IdentityHeaders;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.service.HistorialService;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.util.CorrelationIds;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.IdentidadesDePrueba;
 
 /**
  * Contrato HTTP de RF-MS04-09: GET /api/v1/chi/eventos/{eventoId}/historial con el service real y los
@@ -72,6 +74,9 @@ class HistorialHttpTest {
     @MockitoBean
     private CheckinRepository checkins;
 
+    @MockitoBean
+    private UsuarioNombresClient nombres;
+
     /**
      * Crea un check-in como lo devuelve la base de datos, con el id y la fecha que asigna ella
      *
@@ -99,7 +104,7 @@ class HistorialHttpTest {
      * @return la petición con las cabeceras de identidad y de correlación
      */
     private MockHttpServletRequestBuilder como(String ruta, String rol) {
-        return get(ruta).header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, rol)
+        return get(ruta).header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, rol).header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos(rol))
                 .header(CorrelationIds.HEADER, CORRELATION);
     }
 

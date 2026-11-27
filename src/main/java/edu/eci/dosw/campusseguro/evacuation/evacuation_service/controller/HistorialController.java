@@ -61,7 +61,8 @@ public class HistorialController {
      */
     @Operation(summary = "Histórico de check-ins del evento (RF-MS04-09, F-04)",
             description = "Permiso ms04:history:read. Todos los check-ins del evento (cada reporte de cada "
-                    + "usuario, no solo el vigente), en orden cronológico y con filtro opcional por usuario y por "
+                    + "usuario, no solo el vigente, con su nombre y su correo de MS01, nulos si no los entregó), en "
+                    + "orden cronológico y con filtro opcional por usuario y por "
                     + "estado. Funciona con el evento en cualquier estado, y un evento sin check-ins devuelve la "
                     + "lista vacía.")
     @ApiResponses({

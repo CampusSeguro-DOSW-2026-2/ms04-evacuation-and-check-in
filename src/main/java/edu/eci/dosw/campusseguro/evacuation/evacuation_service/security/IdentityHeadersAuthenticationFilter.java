@@ -19,7 +19,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
 /**
- * Autentica la petición con las cabeceras X-User-Id y X-User-Role que inyecta el API Gateway (RNF-MS04-10): MS04
+ * Autentica la petición con las cabeceras X-User-Id, X-User-Role y X-User-Permission que inyecta el API Gateway
+ * (RNF-MS04-10): MS04
  * nunca recibe ni valida el JWT. Si las cabeceras faltan o no son válidas la petición queda sin autenticar y las
  * rutas protegidas responden 401
  */
@@ -34,7 +35,8 @@ public class IdentityHeadersAuthenticationFilter extends OncePerRequestFilter {
         try {
             RequesterIdentity identity = IdentityHeaderParser.parse(
                     request.getHeader(IdentityHeaders.USER_ID),
-                    request.getHeader(IdentityHeaders.USER_ROLE));
+                    request.getHeader(IdentityHeaders.USER_ROLE),
+                    request.getHeader(IdentityHeaders.USER_PERMISSION));
             SecurityContext context = SecurityContextHolder.createEmptyContext();
             context.setAuthentication(buildAuthentication(identity));
             SecurityContextHolder.setContext(context);
@@ -47,8 +49,8 @@ public class IdentityHeadersAuthenticationFilter extends OncePerRequestFilter {
     /** Los permisos del solicitante quedan como autoridades de la autenticación */
     private Authentication buildAuthentication(RequesterIdentity identity) {
         List<GrantedAuthority> authorities = new ArrayList<>();
-        for (Permiso permiso : identity.permisos()) {
-            authorities.add(new SimpleGrantedAuthority(permiso.getCode()));
+        for (String codigo : identity.permisos()) {
+            authorities.add(new SimpleGrantedAuthority(codigo));
         }
         return UsernamePasswordAuthenticationToken.authenticated(identity, null, authorities);
     }

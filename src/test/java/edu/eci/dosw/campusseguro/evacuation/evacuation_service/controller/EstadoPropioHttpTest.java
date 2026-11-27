@@ -43,6 +43,7 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.Correlat
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.IdentityHeaders;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.service.EstadoPropioService;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.util.CorrelationIds;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.IdentidadesDePrueba;
 
 /**
  * Contrato HTTP de RF-MS04-05: GET /api/v1/chi/eventos/{eventoId}/checkins/propio con el service real y los
@@ -101,7 +102,7 @@ class EstadoPropioHttpTest {
      * @return la petición con las cabeceras de identidad y de correlación
      */
     private MockHttpServletRequestBuilder como(String rol) {
-        return get(RUTA).header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, rol)
+        return get(RUTA).header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, rol).header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos(rol))
                 .header(CorrelationIds.HEADER, CORRELATION);
     }
 
@@ -250,7 +251,7 @@ class EstadoPropioHttpTest {
     @Test
     void unEventoIdQueNoEsUuidEsValidacion() throws Exception {
         mockMvc.perform(get("/api/v1/chi/eventos/no-es-uuid/checkins/propio")
-                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "ESTUDIANTE"))
+                .header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, "ESTUDIANTE").header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos("ESTUDIANTE")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.codigo").value("VALIDACION"))
                 .andExpect(jsonPath("$.errores[0].campo").value("eventoId"));

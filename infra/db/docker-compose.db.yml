@@ -1,0 +1,54 @@
+# Bases de datos de MS04 en su propia VM (EC2), separadas de la VM del servicio: una PostgreSQL por entorno.
+# Se levanta una sola vez a mano (README, Despliegue en la nube, paso "VM de base de datos"), desde la raíz del
+# repositorio clonado en esa VM, con un .env junto a este archivo:
+#
+#   IP_PRIVADA=<IP privada de esta VM>
+#   DB_PASSWORD_PROD=<la misma del secreto DB_PASSWORD de ms04-prod>
+#   DB_PASSWORD_TEST=<la misma del secreto DB_PASSWORD de ms04-test>
+#
+#   docker compose -f infra/db/docker-compose.db.yml up -d
+#
+# Los puertos se publican solo en la IP privada y el Security Group solo deja entrar a la VM de MS04.
+# Nunca "down -v": borra las bases de datos.
+name: ms04-db
+
+x-postgres: &postgres
+  image: postgres:17.6-alpine
+  restart: unless-stopped
+  # La VM tiene 1 GB para las dos bases: memoria compartida reducida y pocas conexiones (MS04 usa 10 por entorno)
+  command: ["postgres", "-c", "shared_buffers=64MB", "-c", "max_connections=30"]
+  healthcheck:
+    test: ["CMD-SHELL", "pg_isready -U ms04_user -d ms04_db"]
+    interval: 10s
+    timeout: 5s
+    retries: 6
+
+services:
+  prod:
+    <<: *postgres
+    environment:
+      POSTGRES_DB: ms04_db
+      POSTGRES_USER: ms04_user
+      POSTGRES_PASSWORD: ${DB_PASSWORD_PROD:?DB_PASSWORD_PROD es obligatoria}
+    ports:
+      - "${IP_PRIVADA:?IP_PRIVADA es obligatoria}:5432:5432"
+    volumes:
+      - prod:/var/lib/postgresql/data
+      # Esquema inicial (database/*.sql): Postgres solo lo ejecuta la primera vez, con el volumen vacío.
+      - ../../database:/docker-entrypoint-initdb.d:ro
+
+  test:
+    <<: *postgres
+    environment:
+      POSTGRES_DB: ms04_db
+      POSTGRES_USER: ms04_user
+      POSTGRES_PASSWORD: ${DB_PASSWORD_TEST:?DB_PASSWORD_TEST es obligatoria}
+    ports:
+      - "${IP_PRIVADA:?IP_PRIVADA es obligatoria}:5433:5432"
+    volumes:
+      - test:/var/lib/postgresql/data
+      - ../../database:/docker-entrypoint-initdb.d:ro
+
+volumes:
+  prod:
+  test:

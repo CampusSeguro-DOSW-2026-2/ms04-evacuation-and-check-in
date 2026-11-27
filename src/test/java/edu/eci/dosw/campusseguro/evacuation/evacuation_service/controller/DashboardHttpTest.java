@@ -15,7 +15,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
-import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -41,6 +40,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.PoblacionObjetivoClient;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.DatosUsuario;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.UsuarioNombresClient;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.ZonasBrigadistaClient;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.ZonasBrigadistaClient.ZonasAsignadas;
@@ -61,10 +61,9 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.Evento
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.SolicitudAsistenciaRepository;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.CorrelationIdFilter;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.IdentityHeaders;
-import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.RequesterIdentity;
-import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.Rol;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.service.DashboardService;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.util.CorrelationIds;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.IdentidadesDePrueba;
 
 /**
  * Contrato HTTP de RF-MS04-06, RF-MS04-07 y RF-MS04-08: GET /api/v1/chi/eventos/{eventoId}/consolidado, /personas,
@@ -178,7 +177,7 @@ class DashboardHttpTest {
      * @return la petición con las cabeceras de identidad y de correlación
      */
     private MockHttpServletRequestBuilder como(String ruta, String rol) {
-        return get(ruta).header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, rol)
+        return get(ruta).header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, rol).header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos(rol))
                 .header(CorrelationIds.HEADER, CORRELATION);
     }
 
@@ -245,7 +244,7 @@ class DashboardHttpTest {
     @ValueSource(strings = { "COORDINADOR", "ORGANIZADOR", "AUDITOR", "BRIGADISTA", "BRIGADISTA,COORDINADOR" })
     void losRolesConElPermisoPuedenConsolidar(String rol) throws Exception {
         when(eventos.findById(EVENTO)).thenReturn(Optional.of(evento(EstadoEvento.EN_EJECUCION)));
-        when(zonasBrigadista.zonasDe(any())).thenReturn(new ZonasAsignadas(NADA, NADA, NADA));
+        when(zonasBrigadista.zonasDe(any(), any())).thenReturn(new ZonasAsignadas(NADA, NADA, NADA));
         when(checkins.contarVigentes(EVENTO, false, NADA, NADA, NADA)).thenReturn(List.of());
         when(checkins.contarVigentes(EVENTO, true, NADA, NADA, NADA)).thenReturn(List.of());
 
@@ -310,7 +309,7 @@ class DashboardHttpTest {
     @Test
     void consolidadoDelBrigadistaSinZonasDeMs05Responde503() throws Exception {
         when(eventos.findById(EVENTO)).thenReturn(Optional.of(evento(EstadoEvento.EN_EJECUCION)));
-        when(zonasBrigadista.zonasDe(any())).thenThrow(ApiException.dependenciaNoDisponible());
+        when(zonasBrigadista.zonasDe(any(), any())).thenThrow(ApiException.dependenciaNoDisponible());
 
         mockMvc.perform(como(BASE + "/consolidado", "BRIGADISTA"))
                 .andExpect(status().isServiceUnavailable())
@@ -330,7 +329,7 @@ class DashboardHttpTest {
     void consolidadoDelBrigadistaUsaSusZonasYSuIdentidadDeLasCabeceras() throws Exception {
         UUID edificio = UUID.fromString("0b6f3d1a-2c4e-4f58-8a97-5d3e1b7c9a20");
         when(eventos.findById(EVENTO)).thenReturn(Optional.of(evento(EstadoEvento.EN_EJECUCION)));
-        when(zonasBrigadista.zonasDe(any())).thenReturn(new ZonasAsignadas(Set.of(edificio), NADA, Set.of(PUNTO_A)));
+        when(zonasBrigadista.zonasDe(any(), any())).thenReturn(new ZonasAsignadas(Set.of(edificio), NADA, Set.of(PUNTO_A)));
         when(checkins.contarVigentes(EVENTO, true, Set.of(PUNTO_A), Set.of(edificio), NADA))
                 .thenReturn(List.of(new Fila("SAFE", PUNTO_A, 6), new Fila("NEEDS_ASSISTANCE", null, 1)));
 
@@ -342,7 +341,7 @@ class DashboardHttpTest {
                 .andExpect(jsonPath("$.totales_por_estado.OFF_CAMPUS").value(0))
                 .andExpect(jsonPath("$.total_reportados").value(7));
 
-        verify(zonasBrigadista).zonasDe(new RequesterIdentity(UUID.fromString(USUARIO), EnumSet.of(Rol.BRIGADISTA)));
+        verify(zonasBrigadista).zonasDe(IdentidadesDePrueba.identidad(UUID.fromString(USUARIO), "BRIGADISTA"), EVENTO);
     }
 
     // ---------------------------------------------------------------- personas
@@ -360,13 +359,15 @@ class DashboardHttpTest {
                 PageRequest.of(0, 20)))
                 .thenReturn(new PageImpl<>(List.of(checkin(ANA, EstadoCheckin.SAFE, PUNTO_A)),
                         PageRequest.of(0, 20), 1));
-        when(nombres.nombresDe(List.of(ANA))).thenReturn(Map.of(ANA, "Ana Pérez"));
+        when(nombres.datosDe(List.of(ANA)))
+                .thenReturn(Map.of(ANA, new DatosUsuario("Ana Pérez", "ana.perez@escuelaing.edu.co")));
 
         mockMvc.perform(como(BASE + "/personas?estado=SAFE&punto_encuentro_id=" + PUNTO_A, "AUDITOR"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.contenido", hasSize(1)))
                 .andExpect(jsonPath("$.contenido[0].usuario_id").value(ANA.toString()))
                 .andExpect(jsonPath("$.contenido[0].nombre").value("Ana Pérez"))
+                .andExpect(jsonPath("$.contenido[0].correo").value("ana.perez@escuelaing.edu.co"))
                 .andExpect(jsonPath("$.contenido[0].estado").value("SAFE"))
                 .andExpect(jsonPath("$.contenido[0].punto_encuentro_id").value(PUNTO_A.toString()))
                 .andExpect(jsonPath("$.contenido[0].fecha_hora").value("2026-11-20T15:04:12Z"))
@@ -387,12 +388,13 @@ class DashboardHttpTest {
         when(checkins.buscarVigentes(EVENTO, null, null, false, NADA, NADA, NADA, PageRequest.of(0, 20)))
                 .thenReturn(new PageImpl<>(List.of(checkin(LUIS, EstadoCheckin.EVACUATING, null)),
                         PageRequest.of(0, 20), 1));
-        when(nombres.nombresDe(List.of(LUIS))).thenReturn(Map.of());
+        when(nombres.datosDe(List.of(LUIS))).thenReturn(Map.of());
 
         mockMvc.perform(como(BASE + "/personas", "COORDINADOR"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.contenido[0].usuario_id").value(LUIS.toString()))
                 .andExpect(jsonPath("$.contenido[0].nombre").value(nullValue()))
+                .andExpect(jsonPath("$.contenido[0].correo").value(nullValue()))
                 .andExpect(jsonPath("$.contenido[0].punto_encuentro_id").value(nullValue()))
                 .andExpect(jsonPath("$.size").value(20));
     }
@@ -529,7 +531,7 @@ class DashboardHttpTest {
     @Test
     void personasDelBrigadistaSinZonasDeMs05Responde503() throws Exception {
         when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(zonasBrigadista.zonasDe(any())).thenThrow(ApiException.dependenciaNoDisponible());
+        when(zonasBrigadista.zonasDe(any(), any())).thenThrow(ApiException.dependenciaNoDisponible());
 
         mockMvc.perform(como(BASE + "/personas", "BRIGADISTA"))
                 .andExpect(status().isServiceUnavailable())
@@ -567,7 +569,8 @@ class DashboardHttpTest {
         when(poblacionObjetivo.usuariosActivosPorRoles(any(), any(), any()))
                 .thenReturn(Optional.of(Set.of(ANA, LUIS)));
         when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of());
-        when(nombres.nombresDe(List.of(ANA, LUIS))).thenReturn(Map.of(ANA, "Ana Pérez"));
+        when(nombres.datosDe(List.of(ANA, LUIS)))
+                .thenReturn(Map.of(ANA, new DatosUsuario("Ana Pérez", "ana.perez@escuelaing.edu.co")));
 
         mockMvc.perform(como(BASE + "/pendientes", "COORDINADOR"))
                 .andExpect(status().isOk())
@@ -575,8 +578,10 @@ class DashboardHttpTest {
                 .andExpect(jsonPath("$.contenido", hasSize(2)))
                 .andExpect(jsonPath("$.contenido[0].usuario_id").value(ANA.toString()))
                 .andExpect(jsonPath("$.contenido[0].nombre").value("Ana Pérez"))
+                .andExpect(jsonPath("$.contenido[0].correo").value("ana.perez@escuelaing.edu.co"))
                 .andExpect(jsonPath("$.contenido[1].usuario_id").value(LUIS.toString()))
                 .andExpect(jsonPath("$.contenido[1].nombre").value(nullValue()))
+                .andExpect(jsonPath("$.contenido[1].correo").value(nullValue()))
                 .andExpect(jsonPath("$.page").value(0))
                 .andExpect(jsonPath("$.size").value(20))
                 .andExpect(jsonPath("$.total_elementos").value(2))
@@ -594,7 +599,8 @@ class DashboardHttpTest {
         when(poblacionObjetivo.usuariosActivosPorRoles(any(), any(), any()))
                 .thenReturn(Optional.of(Set.of(ANA, LUIS)));
         when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of(ANA));
-        when(nombres.nombresDe(List.of(LUIS))).thenReturn(Map.of(LUIS, "Luis Gómez"));
+        when(nombres.datosDe(List.of(LUIS)))
+                .thenReturn(Map.of(LUIS, new DatosUsuario("Luis Gómez", "luis.gomez@escuelaing.edu.co")));
 
         mockMvc.perform(como(BASE + "/pendientes", "AUDITOR"))
                 .andExpect(status().isOk())
@@ -617,7 +623,7 @@ class DashboardHttpTest {
         when(eventos.findById(EVENTO)).thenReturn(Optional.of(eventoConvocado()));
         when(poblacionObjetivo.usuariosActivosPorRoles(any(), any(), any())).thenReturn(Optional.of(poblacion));
         when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of());
-        when(nombres.nombresDe(any())).thenReturn(Map.of());
+        when(nombres.datosDe(any())).thenReturn(Map.of());
 
         mockMvc.perform(como(BASE + "/pendientes?page=2&size=10", "ORGANIZADOR"))
                 .andExpect(status().isOk())
@@ -641,7 +647,7 @@ class DashboardHttpTest {
         when(eventos.findById(EVENTO)).thenReturn(Optional.of(eventoConvocado()));
         when(poblacionObjetivo.usuariosActivosPorRoles(any(), any(), any())).thenReturn(Optional.of(Set.of(ANA)));
         when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of());
-        when(nombres.nombresDe(any())).thenReturn(Map.of());
+        when(nombres.datosDe(any())).thenReturn(Map.of());
 
         mockMvc.perform(como(BASE + "/pendientes", rol))
                 .andExpect(status().isOk())
@@ -772,12 +778,12 @@ class DashboardHttpTest {
         when(eventos.findById(EVENTO)).thenReturn(Optional.of(eventoConvocado()));
         when(poblacionObjetivo.usuariosActivosPorRoles(any(), any(), any())).thenReturn(Optional.of(Set.of()));
         when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of());
-        when(nombres.nombresDe(any())).thenReturn(Map.of());
+        when(nombres.datosDe(any())).thenReturn(Map.of());
 
         mockMvc.perform(como(BASE + "/pendientes", "AUDITOR")).andExpect(status().isOk());
 
         verify(poblacionObjetivo).usuariosActivosPorRoles(ROLES, INICIO,
-                new RequesterIdentity(UUID.fromString(USUARIO), EnumSet.of(Rol.AUDITOR)));
+                IdentidadesDePrueba.identidad(UUID.fromString(USUARIO), "AUDITOR"));
     }
 
     // ---------------------------------------------------------------- asistencia
@@ -827,7 +833,8 @@ class DashboardHttpTest {
         when(checkins.buscarVigentesConAsistencia(EVENTO, false, NADA, NADA, NADA, PageRequest.of(0, 20)))
                 .thenReturn(new PageImpl<>(List.of(checkinAsistencia(ANA, TipoUbicacion.EDIFICIO, EDIFICIO),
                         checkinAsistencia(LUIS, TipoUbicacion.ESPACIO, ESPACIO)), PageRequest.of(0, 20), 2));
-        when(nombres.nombresDe(List.of(ANA, LUIS))).thenReturn(Map.of(ANA, "Ana Pérez"));
+        when(nombres.datosDe(List.of(ANA, LUIS)))
+                .thenReturn(Map.of(ANA, new DatosUsuario("Ana Pérez", "ana.perez@escuelaing.edu.co")));
         when(solicitudes.findByEventoIdAndUsuarioIdIn(EVENTO, List.of(ANA, LUIS))).thenReturn(List.of(
                 solicitud(ANA, "SOL-2026-0042", EstadoEnvio.ENVIADA),
                 solicitud(LUIS, null, EstadoEnvio.PENDIENTE_ENVIO)));
@@ -838,6 +845,7 @@ class DashboardHttpTest {
                 .andExpect(jsonPath("$.contenido", hasSize(2)))
                 .andExpect(jsonPath("$.contenido[0].usuario_id").value(ANA.toString()))
                 .andExpect(jsonPath("$.contenido[0].nombre").value("Ana Pérez"))
+                .andExpect(jsonPath("$.contenido[0].correo").value("ana.perez@escuelaing.edu.co"))
                 .andExpect(jsonPath("$.contenido[0].ubicacion.tipo").value("EDIFICIO"))
                 .andExpect(jsonPath("$.contenido[0].ubicacion.id").value(EDIFICIO.toString()))
                 .andExpect(jsonPath("$.contenido[0].fecha_reporte").value("2026-11-20T15:04:12Z"))
@@ -845,6 +853,7 @@ class DashboardHttpTest {
                 .andExpect(jsonPath("$.contenido[0].solicitud_asistencia.estado_envio").value("ENVIADA"))
                 .andExpect(jsonPath("$.contenido[1].usuario_id").value(LUIS.toString()))
                 .andExpect(jsonPath("$.contenido[1].nombre").value(nullValue()))
+                .andExpect(jsonPath("$.contenido[1].correo").value(nullValue()))
                 .andExpect(jsonPath("$.contenido[1].ubicacion.tipo").value("ESPACIO"))
                 .andExpect(jsonPath("$.contenido[1].ubicacion.id").value(ESPACIO.toString()))
                 .andExpect(jsonPath("$.contenido[1].solicitud_asistencia.id").value(nullValue()))
@@ -946,7 +955,7 @@ class DashboardHttpTest {
     @Test
     void asistenciaDelBrigadistaUsaSusZonasYSuIdentidadDeLasCabeceras() throws Exception {
         when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(zonasBrigadista.zonasDe(any())).thenReturn(new ZonasAsignadas(Set.of(EDIFICIO), Set.of(ESPACIO),
+        when(zonasBrigadista.zonasDe(any(), any())).thenReturn(new ZonasAsignadas(Set.of(EDIFICIO), Set.of(ESPACIO),
                 Set.of(PUNTO_A)));
         when(checkins.buscarVigentesConAsistencia(EVENTO, true, Set.of(PUNTO_A), Set.of(EDIFICIO), Set.of(ESPACIO),
                 PageRequest.of(0, 20)))
@@ -961,7 +970,7 @@ class DashboardHttpTest {
                 .andExpect(jsonPath("$.contenido[0].usuario_id").value(ANA.toString()))
                 .andExpect(jsonPath("$.total_elementos").value(1));
 
-        verify(zonasBrigadista).zonasDe(new RequesterIdentity(UUID.fromString(USUARIO), EnumSet.of(Rol.BRIGADISTA)));
+        verify(zonasBrigadista).zonasDe(IdentidadesDePrueba.identidad(UUID.fromString(USUARIO), "BRIGADISTA"), EVENTO);
     }
 
     /**
@@ -972,7 +981,7 @@ class DashboardHttpTest {
     @Test
     void asistenciaDelBrigadistaSinZonasDeMs05Responde503() throws Exception {
         when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(zonasBrigadista.zonasDe(any())).thenThrow(ApiException.dependenciaNoDisponible());
+        when(zonasBrigadista.zonasDe(any(), any())).thenThrow(ApiException.dependenciaNoDisponible());
 
         mockMvc.perform(como(BASE + "/asistencia", "BRIGADISTA"))
                 .andExpect(status().isServiceUnavailable())

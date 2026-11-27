@@ -46,5 +46,7 @@ jobs:
           GATEWAY_URL: ${{ vars.GATEWAY_URL }}
           LOG_LEVEL: ${{ vars.LOG_LEVEL }}
           MS04_EXTRA_ENV: ${{ vars.MS04_EXTRA_ENV }}
+          DB_HOST: ${{ vars.DB_HOST }}
+          DB_PORT: ${{ vars.DB_PORT }}
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           GATEWAY_SERVICE_KEY: ${{ secrets.GATEWAY_SERVICE_KEY }}

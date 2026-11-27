@@ -43,6 +43,7 @@ class GatewayClientTest {
     private static final String CORRELATION = "c19b472d-7a2a-4d3b-a12b-abcdef123456";
     private static final String CLAVE = "clave-de-servicio-de-ms04-con-mas-de-32-caracteres";
     private static final UUID USUARIO = UUID.fromString("6c0d2f48-1b3e-4a57-9d8c-2e4f6a8b0c13");
+    private static final String PERMISOS = "ms04:checkin:write,ms04:dashboard:read";
 
     /** Lo que recibió el servidor de prueba */
     private record Recibido(String metodo, String ruta, Map<String, List<String>> cabeceras, String cuerpo) {
@@ -113,7 +114,7 @@ class GatewayClientTest {
      */
     @Test
     void getEnviaLaClaveLaCorrelacionYLaIdentidadDelUsuario() throws InterruptedException {
-        JsonNode cuerpo = cliente(CLAVE, 2000).get("/api/v1/panel/zones", USUARIO, "BRIGADISTA,ESTUDIANTE");
+        JsonNode cuerpo = cliente(CLAVE, 2000).get("/api/v1/panel/zones", USUARIO, "BRIGADISTA,ESTUDIANTE", PERMISOS);
 
         Recibido recibido = recibidos.poll(2, TimeUnit.SECONDS);
         assertEquals("GET", recibido.metodo());
@@ -122,6 +123,7 @@ class GatewayClientTest {
         assertEquals(CORRELATION, recibido.cabeceras().get("X-correlation-id").get(0));
         assertEquals(USUARIO.toString(), recibido.cabeceras().get("X-user-id").get(0));
         assertEquals("BRIGADISTA,ESTUDIANTE", recibido.cabeceras().get("X-user-role").get(0));
+        assertEquals(PERMISOS, recibido.cabeceras().get("X-user-permission").get(0));
         assertTrue(cuerpo.path("ok").asBoolean());
     }
 
@@ -132,11 +134,27 @@ class GatewayClientTest {
      */
     @Test
     void getSinUsuarioNoEnviaLasCabecerasDeIdentidad() throws InterruptedException {
-        cliente(CLAVE, 2000).get("/api/v1/panel/zones", null, null);
+        cliente(CLAVE, 2000).get("/api/v1/panel/zones", null, null, null);
 
         Recibido recibido = recibidos.poll(2, TimeUnit.SECONDS);
         assertNull(recibido.cabeceras().get("X-user-id"));
         assertNull(recibido.cabeceras().get("X-user-role"));
+        assertNull(recibido.cabeceras().get("X-user-permission"));
+    }
+
+    /**
+     * Sin los permisos no se propaga ninguna cabecera de identidad: el Gateway exige las tres juntas (RF-GW-08)
+     *
+     * @throws InterruptedException si se interrumpe la espera de la petición
+     */
+    @Test
+    void getSinPermisosNoPropagaIdentidadIncompleta() throws InterruptedException {
+        cliente(CLAVE, 2000).get("/api/v1/panel/zones", USUARIO, "BRIGADISTA", null);
+
+        Recibido recibido = recibidos.poll(2, TimeUnit.SECONDS);
+        assertNull(recibido.cabeceras().get("X-user-id"));
+        assertNull(recibido.cabeceras().get("X-user-role"));
+        assertNull(recibido.cabeceras().get("X-user-permission"));
     }
 
     /**
@@ -169,7 +187,7 @@ class GatewayClientTest {
     void sinClaveNiCorrelacionNoEnviaEsasCabeceras() throws InterruptedException {
         MDC.remove(CorrelationIds.MDC_KEY);
 
-        cliente(null, 2000).get("/api/v1/panel/zones", null, null);
+        cliente(null, 2000).get("/api/v1/panel/zones", null, null, null);
 
         Recibido recibido = recibidos.poll(2, TimeUnit.SECONDS);
         assertNull(recibido.cabeceras().get("X-service-key"));
@@ -189,7 +207,7 @@ class GatewayClientTest {
         respuesta = "{\"mensaje\":\"detalle interno del otro servicio\"}";
 
         ApiException error = assertThrows(ApiException.class,
-                () -> cliente(CLAVE, 2000).get("/api/v1/panel/zones", USUARIO, "BRIGADISTA"));
+                () -> cliente(CLAVE, 2000).get("/api/v1/panel/zones", USUARIO, "BRIGADISTA", PERMISOS));
 
         assertEquals(ErrorCode.DEPENDENCY_UNAVAILABLE, error.getCode());
         assertEquals(ErrorCode.DEPENDENCY_UNAVAILABLE.getMessage(), error.getMessage());
@@ -216,7 +234,7 @@ class GatewayClientTest {
         retardoMs = 1500;
 
         ApiException error = assertThrows(ApiException.class,
-                () -> cliente(CLAVE, 300).get("/api/v1/panel/zones", USUARIO, "BRIGADISTA"));
+                () -> cliente(CLAVE, 300).get("/api/v1/panel/zones", USUARIO, "BRIGADISTA", PERMISOS));
 
         assertEquals(ErrorCode.DEPENDENCY_UNAVAILABLE, error.getCode());
     }
@@ -230,7 +248,7 @@ class GatewayClientTest {
         servidor.stop(0);
 
         ApiException error = assertThrows(ApiException.class,
-                () -> cliente.get("/api/v1/panel/zones", USUARIO, "BRIGADISTA"));
+                () -> cliente.get("/api/v1/panel/zones", USUARIO, "BRIGADISTA", PERMISOS));
 
         assertEquals(ErrorCode.DEPENDENCY_UNAVAILABLE, error.getCode());
     }
@@ -261,7 +279,7 @@ class GatewayClientTest {
         GatewayClient cliente = new GatewayClient(HttpClient.newHttpClient(), "http://host con espacios", CLAVE,
                 Duration.ofMillis(500));
 
-        ApiException error = assertThrows(ApiException.class, () -> cliente.get("/api/v1/panel/zones", null, null));
+        ApiException error = assertThrows(ApiException.class, () -> cliente.get("/api/v1/panel/zones", null, null, null));
 
         assertEquals(ErrorCode.DEPENDENCY_UNAVAILABLE, error.getCode());
     }
@@ -274,7 +292,7 @@ class GatewayClientTest {
         Thread.currentThread().interrupt();
         try {
             ApiException error = assertThrows(ApiException.class,
-                    () -> cliente(CLAVE, 2000).get("/api/v1/panel/zones", null, null));
+                    () -> cliente(CLAVE, 2000).get("/api/v1/panel/zones", null, null, null));
 
             assertEquals(ErrorCode.DEPENDENCY_UNAVAILABLE, error.getCode());
             assertTrue(Thread.currentThread().isInterrupted());

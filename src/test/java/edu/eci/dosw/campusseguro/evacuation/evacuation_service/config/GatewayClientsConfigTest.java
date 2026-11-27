@@ -48,7 +48,7 @@ class GatewayClientsConfigTest {
         UsuarioNombresClient nombres = config.usuarioNombresClient(gateway);
 
         assertEquals(0, nombres.nombresDe(List.of(UUID.randomUUID())).size());
-        ApiException error = assertThrows(ApiException.class, () -> gateway.get("/api/v1/panel/zones", null, null));
+        ApiException error = assertThrows(ApiException.class, () -> gateway.get("/api/v1/panel/zones", null, null, null));
         assertEquals(ErrorCode.DEPENDENCY_UNAVAILABLE, error.getCode());
     }
 }

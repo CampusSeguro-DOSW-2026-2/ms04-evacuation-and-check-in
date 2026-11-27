@@ -9,7 +9,6 @@ import static org.mockito.Mockito.when;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -20,7 +19,7 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.EstadoEven
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.Evento;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.EventoRepository;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.RequesterIdentity;
-import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.Rol;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.IdentidadesDePrueba;
 
 class EventoActivoServiceTest {
 
@@ -47,7 +46,7 @@ class EventoActivoServiceTest {
 
     @Test
     void buscaPorLosRolesDelUsuarioEnOrdenAlfabetico() {
-        RequesterIdentity usuario = new RequesterIdentity(USUARIO, Set.of(Rol.ESTUDIANTE, Rol.BRIGADISTA));
+        RequesterIdentity usuario = IdentidadesDePrueba.identidad(USUARIO, "ESTUDIANTE", "BRIGADISTA");
 
         service.activos(usuario);
 
@@ -61,7 +60,7 @@ class EventoActivoServiceTest {
         Evento segundo = activo("Segundo");
         when(eventos.buscarActivosPorRoles(List.of("ESTUDIANTE"))).thenReturn(List.of(primero, segundo));
 
-        List<EventoResponse> respuesta = service.activos(new RequesterIdentity(USUARIO, Set.of(Rol.ESTUDIANTE)));
+        List<EventoResponse> respuesta = service.activos(IdentidadesDePrueba.identidad(USUARIO, "ESTUDIANTE"));
 
         assertEquals(List.of(primero.getId(), segundo.getId()),
                 respuesta.stream().map(EventoResponse::eventoId).toList());
@@ -73,6 +72,6 @@ class EventoActivoServiceTest {
     void sinEventosActivosDevuelveUnaListaVaciaYNoFalla() {
         when(eventos.buscarActivosPorRoles(List.of("ESTUDIANTE"))).thenReturn(List.of());
 
-        assertTrue(service.activos(new RequesterIdentity(USUARIO, Set.of(Rol.ESTUDIANTE))).isEmpty());
+        assertTrue(service.activos(IdentidadesDePrueba.identidad(USUARIO, "ESTUDIANTE")).isEmpty());
     }
 }

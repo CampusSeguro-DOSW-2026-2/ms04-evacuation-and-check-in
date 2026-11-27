@@ -13,6 +13,7 @@ import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -34,6 +35,9 @@ class AuditEventPublisherTest {
     private static final UUID USUARIO = UUID.fromString("3f6c2a9e-8b1d-4c7a-9e2f-1a5b7c9d0e42");
     private static final UUID CHECKIN = UUID.fromString("9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d");
     private static final Instant FECHA = Instant.parse("2026-11-20T15:04:12Z");
+    private static final UUID ID = UUID.fromString("2b7e4c90-1d3a-4f65-8e2b-9c0a1d4e7f36");
+    private static final UUID EVENTO = UUID.fromString("7c1d5b2e-4f3a-4e8b-9a61-0d2f8c3b5a17");
+    private static final UUID PUNTO = UUID.fromString("1f2e3d4c-5b6a-4978-8a9b-0c1d2e3f4a5b");
 
     /** Lo que recibió el servidor de prueba */
     private record Recibido(String metodo, String ruta, java.util.Map<String, java.util.List<String>> cabeceras,
@@ -73,8 +77,9 @@ class AuditEventPublisherTest {
     }
 
     private AuditEvent eventoDeUsuario() {
-        return new AuditEvent(AuditAction.REGISTRO_CHECKIN, AuditResult.EXITO, USUARIO, "BRIGADISTA,ESTUDIANTE", null,
-                CORRELATION, FECHA, "checkin:" + CHECKIN);
+        return new AuditEvent(ID, AuditAction.REGISTRO_CHECKIN, AuditResult.EXITO, USUARIO, "BRIGADISTA,ESTUDIANTE",
+                "ms04:checkin:write,ms04:dashboard:read", null, CORRELATION, FECHA, "checkin:" + CHECKIN,
+                new AuditContext(EVENTO, true, Map.of()).con("estado", "SAFE").con("punto_encuentro_id", PUNTO));
     }
 
     private Recibido esperar() throws InterruptedException {
@@ -94,31 +99,35 @@ class AuditEventPublisherTest {
         assertEquals(CORRELATION, recibido.cabeceras().get("X-correlation-id").get(0));
         assertEquals(USUARIO.toString(), recibido.cabeceras().get("X-user-id").get(0));
         assertEquals("BRIGADISTA,ESTUDIANTE", recibido.cabeceras().get("X-user-role").get(0));
+        assertEquals("ms04:checkin:write,ms04:dashboard:read", recibido.cabeceras().get("X-user-permission").get(0));
         assertTrue(recibido.cabeceras().get("Content-type").get(0).startsWith("application/json"));
     }
 
     @Test
-    void elCuerpoTieneLosOchoCamposDeLosEstandares() throws Exception {
+    void elCuerpoTieneLosCamposDeLosEstandaresConElEventoYSusAtributos() throws Exception {
         publicador(url(), "clave").publish(eventoDeUsuario());
 
-        assertEquals("{\"usuario_id\":\"" + USUARIO + "\",\"modulo\":\"MS04\",\"accion\":\"REGISTRO_CHECKIN\","
-                + "\"recurso_afectado\":\"checkin:" + CHECKIN + "\",\"resultado\":\"EXITO\","
-                + "\"fecha_hora\":\"2026-11-20T15:04:12Z\",\"correlation_id\":\"" + CORRELATION + "\","
-                + "\"detalle\":null}", esperar().cuerpo());
+        assertEquals("{\"id\":\"" + ID + "\",\"usuario_id\":\"" + USUARIO + "\",\"modulo\":\"MS04\","
+                + "\"accion\":\"REGISTRO_CHECKIN\",\"recurso_afectado\":\"checkin:" + CHECKIN + "\","
+                + "\"resultado\":\"EXITO\",\"fecha_hora\":\"2026-11-20T15:04:12Z\",\"correlation_id\":\""
+                + CORRELATION + "\",\"detalle\":null,\"evento_id\":\"" + EVENTO + "\",\"tipo_evento\":\"SIMULACRO\","
+                + "\"atributos\":{\"estado\":\"SAFE\",\"punto_encuentro_id\":\"" + PUNTO + "\"}}", esperar().cuerpo());
     }
 
     @Test
     void unEventoSinUsuarioNoPropagaIdentidadYLlevaUsuarioNulo() throws Exception {
-        AuditEvent evento = new AuditEvent(AuditAction.CAMBIO_ESTADO_EVENTO, AuditResult.EXITO, null, null,
-                "origen=ms06 anterior=PROGRAMADO nuevo=EN_EJECUCION", CORRELATION, FECHA, "evento:" + CHECKIN);
+        AuditEvent evento = new AuditEvent(ID, AuditAction.CAMBIO_ESTADO_EVENTO, AuditResult.EXITO, null, null, null,
+                "origen=ms06 anterior=PROGRAMADO nuevo=EN_EJECUCION", CORRELATION, FECHA, "evento:" + CHECKIN, null);
 
         publicador(url(), "clave").publish(evento);
 
         Recibido recibido = esperar();
         assertNull(recibido.cabeceras().get("X-user-id"));
         assertNull(recibido.cabeceras().get("X-user-role"));
-        assertTrue(recibido.cuerpo().startsWith("{\"usuario_id\":null,\"modulo\":\"MS04\","
+        assertNull(recibido.cabeceras().get("X-user-permission"));
+        assertTrue(recibido.cuerpo().startsWith("{\"id\":\"" + ID + "\",\"usuario_id\":null,\"modulo\":\"MS04\","
                 + "\"accion\":\"CAMBIO_ESTADO_EVENTO\""));
+        assertTrue(recibido.cuerpo().endsWith("\"evento_id\":null,\"tipo_evento\":null,\"atributos\":null}"));
         assertTrue(recibido.cuerpo().contains("\"detalle\":\"origen=ms06 anterior=PROGRAMADO nuevo=EN_EJECUCION\""));
     }
 
@@ -159,8 +168,8 @@ class AuditEventPublisherTest {
 
     @Test
     void elJsonEscapaElDetalle() {
-        AuditEvent evento = new AuditEvent(AuditAction.SOLICITUD_ASISTENCIA, AuditResult.FALLO, USUARIO, null,
-                "dijo \"hola\"\n", CORRELATION, FECHA, null);
+        AuditEvent evento = new AuditEvent(ID, AuditAction.SOLICITUD_ASISTENCIA, AuditResult.FALLO, USUARIO, null,
+                null, "dijo \"hola\"\n", CORRELATION, FECHA, null, null);
 
         String json = AuditEventPublisherImpl.toJson(evento);
 

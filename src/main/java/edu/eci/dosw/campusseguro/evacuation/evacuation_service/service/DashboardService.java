@@ -18,6 +18,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.PoblacionObjetivoClient;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.DatosUsuario;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.UsuarioNombresClient;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.ZonasBrigadistaClient;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.ZonasBrigadistaClient.ZonasAsignadas;
@@ -39,8 +40,8 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.Checki
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.CheckinRepository.ConteoPorEstadoYPunto;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.EventoRepository;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.SolicitudAsistenciaRepository;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.Permiso;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.RequesterIdentity;
-import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.Rol;
 
 /**
  * Dashboard del evento: RF-MS04-06 Consolidar el estado del evento (Jira KAIR-577, historias KAIR-596 y KAIR-597),
@@ -54,6 +55,9 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.Rol;
 public class DashboardService {
 
     private static final Logger log = LoggerFactory.getLogger(DashboardService.class);
+
+    /** Usuario que MS01 no entregó: nombre y correo nulos */
+    static final DatosUsuario SIN_DATOS = new DatosUsuario(null, null);
 
     public static final String EVENTO_NO_ENCONTRADO = "Evento no encontrado.";
     public static final String PUNTO_SOLO_SAFE = "El punto de encuentro solo aplica a Estoy a salvo.";
@@ -114,7 +118,7 @@ public class DashboardService {
     public Consolidado consolidado(UUID eventoId, RequesterIdentity requester) {
         Evento evento = eventos.findById(eventoId)
                 .orElseThrow(() -> ApiException.noEncontrado(EVENTO_NO_ENCONTRADO));
-        Alcance alcance = alcanceDe(requester);
+        Alcance alcance = alcanceDe(requester, eventoId);
         List<ConteoPorEstadoYPunto> filas = checkins.contarVigentes(eventoId, alcance.restringido(),
                 alcance.zonas().puntosEncuentro(), alcance.zonas().edificios(), alcance.zonas().espacios());
 
@@ -155,45 +159,49 @@ public class DashboardService {
         if (!eventos.existsById(eventoId)) {
             throw ApiException.noEncontrado(EVENTO_NO_ENCONTRADO);
         }
-        Alcance alcance = alcanceDe(requester);
+        Alcance alcance = alcanceDe(requester, eventoId);
         Page<Checkin> pagina = checkins.buscarVigentes(eventoId, estado, puntoEncuentroId, alcance.restringido(),
                 alcance.zonas().puntosEncuentro(), alcance.zonas().edificios(), alcance.zonas().espacios(),
                 PageRequest.of(page, size));
 
         List<UUID> usuarios = pagina.getContent().stream().map(Checkin::getUsuarioId).toList();
-        Map<UUID, String> nombresPorUsuario = nombres.nombresDe(usuarios);
-        Page<CheckinResumen> resumenes = pagina.map(checkin -> new CheckinResumen(checkin.getUsuarioId(),
-                nombresPorUsuario.get(checkin.getUsuarioId()), checkin.getEstado(), checkin.getPuntoEncuentroId(),
-                checkin.getRegistradoEn()));
+        Map<UUID, DatosUsuario> datosPorUsuario = nombres.datosDe(usuarios);
+        Page<CheckinResumen> resumenes = pagina.map(checkin -> {
+            DatosUsuario datos = datosDe(datosPorUsuario, checkin.getUsuarioId());
+            return new CheckinResumen(checkin.getUsuarioId(), datos.nombre(), datos.correo(), checkin.getEstado(),
+                    checkin.getPuntoEncuentroId(), checkin.getRegistradoEn());
+        });
         return PageResponse.from(resumenes);
     }
 
     /**
-     * Alcance de la consulta según los roles del solicitante: quien solo tiene el rol BRIGADISTA ve únicamente sus
-     * zonas, que se piden a MS05; los demás roles con {@code ms04:dashboard:read} ven todo el evento
+     * Alcance de la consulta según los permisos del solicitante: quien tiene {@code ms04:dashboard:read} sin
+     * {@code ms04:history:read} (el brigadista en la asignación inicial) ve únicamente sus zonas, que se piden a MS05;
+     * quien tiene ambos ve todo el evento
      *
      * @param requester solicitante con {@code ms04:dashboard:read}
+     * @param eventoId evento consultado: solo cuentan las zonas que MS05 le asignó al brigadista en ese evento
      * @return el alcance de la consulta
      * @throws ApiException 503 DEPENDENCIA_NO_DISPONIBLE si es un BRIGADISTA y MS05 no entrega sus zonas
      */
-    private Alcance alcanceDe(RequesterIdentity requester) {
+    private Alcance alcanceDe(RequesterIdentity requester, UUID eventoId) {
         if (esSoloBrigadista(requester)) {
-            return new Alcance(true, zonasBrigadista.zonasDe(requester));
+            return new Alcance(true, zonasBrigadista.zonasDe(requester, eventoId));
         }
         return new Alcance(false, new ZonasAsignadas(Set.of(), Set.of(), Set.of()));
     }
 
     /**
-     * Indica si el solicitante tiene el rol BRIGADISTA y ninguno de los roles que ven todo el evento
+     * Indica si la consulta se limita a las zonas del solicitante (RN-MS04-14, MR-03). Se decide por permisos y no
+     * por el nombre del rol, porque los roles ya no son un conjunto fijo (MR-07): con la asignación inicial, solo el
+     * BRIGADISTA tiene {@code ms04:dashboard:read} sin {@code ms04:history:read}; COORDINADOR, ORGANIZADOR y AUDITOR
+     * tienen ambos y ven todo el evento
      *
      * @param requester solicitante con {@code ms04:dashboard:read}
      * @return true si su consulta se limita a lo que le muestra el BRIGADISTA (RN-MS04-14)
      */
     private boolean esSoloBrigadista(RequesterIdentity requester) {
-        return requester.tieneRol(Rol.BRIGADISTA)
-                && !requester.tieneRol(Rol.COORDINADOR)
-                && !requester.tieneRol(Rol.ORGANIZADOR)
-                && !requester.tieneRol(Rol.AUDITOR);
+        return !requester.tienePermiso(Permiso.HISTORY_READ);
     }
 
     /**
@@ -231,9 +239,12 @@ public class DashboardService {
         int desde = (int) Math.min((long) page * size, pendientes.size());
         int hasta = (int) Math.min((long) desde + size, pendientes.size());
         List<UUID> usuarios = pendientes.subList(desde, hasta);
-        Map<UUID, String> nombresPorUsuario = nombres.nombresDe(usuarios);
+        Map<UUID, DatosUsuario> datosPorUsuario = nombres.datosDe(usuarios);
         List<Pendiente> pagina = usuarios.stream()
-                .map(usuarioId -> new Pendiente(usuarioId, nombresPorUsuario.get(usuarioId)))
+                .map(usuarioId -> {
+                    DatosUsuario datos = datosDe(datosPorUsuario, usuarioId);
+                    return new Pendiente(usuarioId, datos.nombre(), datos.correo());
+                })
                 .toList();
         return PageResponse.of(pagina, page, size, pendientes.size());
     }
@@ -259,13 +270,13 @@ public class DashboardService {
         if (!eventos.existsById(eventoId)) {
             throw ApiException.noEncontrado(EVENTO_NO_ENCONTRADO);
         }
-        Alcance alcance = alcanceDe(requester);
+        Alcance alcance = alcanceDe(requester, eventoId);
         Page<Checkin> pagina = checkins.buscarVigentesConAsistencia(eventoId, alcance.restringido(),
                 alcance.zonas().puntosEncuentro(), alcance.zonas().edificios(), alcance.zonas().espacios(),
                 PageRequest.of(page, size));
 
         List<UUID> usuarios = pagina.getContent().stream().map(Checkin::getUsuarioId).toList();
-        Map<UUID, String> nombresPorUsuario = nombres.nombresDe(usuarios);
+        Map<UUID, DatosUsuario> datosPorUsuario = nombres.datosDe(usuarios);
         Map<UUID, SolicitudAsistencia> solicitudPorUsuario = new HashMap<>();
         if (!usuarios.isEmpty()) {
             for (SolicitudAsistencia solicitud : solicitudes.findByEventoIdAndUsuarioIdIn(eventoId, usuarios)) {
@@ -283,7 +294,8 @@ public class DashboardService {
             } else {
                 resumen = new SolicitudAsistenciaResumen(solicitud.getSolicitudMs05Id(), solicitud.getEstadoEnvio());
             }
-            personas.add(new PersonaAsistencia(checkin.getUsuarioId(), nombresPorUsuario.get(checkin.getUsuarioId()),
+            DatosUsuario datos = datosDe(datosPorUsuario, checkin.getUsuarioId());
+            personas.add(new PersonaAsistencia(checkin.getUsuarioId(), datos.nombre(), datos.correo(),
                     new Ubicacion(checkin.getUbicacionTipo(), checkin.getUbicacionId()), checkin.getRegistradoEn(),
                     resumen));
         }
@@ -292,5 +304,17 @@ public class DashboardService {
                     sinSolicitud, eventoId);
         }
         return PageResponse.of(personas, page, size, pagina.getTotalElements());
+    }
+
+    /**
+     * Nombre y correo de un usuario; ambos nulos si MS01 no los entregó (RN-MS04-25)
+     *
+     * @param datos datos entregados por MS01
+     * @param usuarioId usuario
+     * @return los datos del usuario, nunca null
+     */
+    static DatosUsuario datosDe(Map<UUID, DatosUsuario> datos, UUID usuarioId) {
+        DatosUsuario encontrado = datos.get(usuarioId);
+        return encontrado != null ? encontrado : SIN_DATOS;
     }
 }
