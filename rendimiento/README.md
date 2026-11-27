@@ -4,28 +4,16 @@ Historia KAIR-606: verificar los RNF de rendimiento, concurrencia y usabilidad p
 
 | RNF | Qué se verifica | Cómo |
 |---|---|---|
-| RNF-MS04-01 | Al menos el 80 % de los check-ins responde en menos de 5 s; los más lentos quedan en el log con su Correlation ID | k6 (`checkin_duracion_ms` p(80) < 5 s), JUnit y `PeticionLentaFilter` |
-| RNF-MS04-02 | 500 check-ins simultáneos sin pérdida, sin duplicados ni errores, con un solo estado vigente por usuario | k6 (escenario `carga`) y JUnit |
-| RNF-MS04-04 | Reportes simultáneos del mismo usuario se serializan, sin 409 ni 500 | k6 (escenario `mismo_usuario`) y JUnit |
-| RNF-MS04-06 | Un check-in se refleja en el consolidado en menos de 5 s | k6 (`reflejo_consolidado_ms` máx < 5 s) y JUnit |
+| RNF-MS04-01 | Al menos el 80 % de los check-ins responde en menos de 5 s; los más lentos quedan en el log con su Correlation ID | k6 (`checkin_duracion_ms` p(80) < 5 s) y `PeticionLentaFilter` (probado en `PeticionLentaFilterTest`) |
+| RNF-MS04-02 | 500 check-ins simultáneos sin pérdida, sin duplicados ni errores, con un solo estado vigente por usuario | k6 (escenario `carga`) |
+| RNF-MS04-04 | Reportes simultáneos del mismo usuario se serializan, sin 409 ni 500 | k6 (escenario `mismo_usuario`); `CheckinServiceTest` comprueba que el check-in toma el bloqueo del usuario antes de leer su estado vigente |
+| RNF-MS04-06 | Un check-in se refleja en el consolidado en menos de 5 s | k6 (`reflejo_consolidado_ms` máx < 5 s) |
 | RNF-MS04-07 | Reporte en máximo 3 interacciones | [prueba-usabilidad.md](prueba-usabilidad.md) (manual) |
 
-Necesitan RF-MS04-02/03 (registrar y actualizar el check-in), RF-MS04-06 (consolidado) y RF-MS04-11 (recibir el
-estado del evento), que ya están implementados.
+La concurrencia y los tiempos se miden con MS04 y PostgreSQL reales, no con las pruebas de `mvn verify`: esas
+pruebas no usan base de datos.
 
-## 1. Pruebas JUnit (sin HTTP, contra PostgreSQL real)
-
-`src/test/.../rendimiento/RendimientoCheckinTest.java`. Tienen la etiqueta `rendimiento`: no corren con
-`mvn verify` (ni en el pipeline), porque lanzan 500 hilos. Necesitan Docker en ejecución.
-
-```bash
-mvn verify -Prendimiento
-```
-
-Usan los estados que no llaman a otros servicios (Me estoy evacuando y No estoy en el campus). En el log quedan
-los percentiles medidos (`Carga de 500 check-ins: p50=… p80=…`).
-
-## 2. Prueba de carga HTTP con k6
+## Prueba de carga HTTP con k6
 
 Levanta MS04 y su base con el `docker-compose.yml` de la raíz, y agrega WireMock como Gateway: responde por MS01,
 MS02 (puntos de encuentro ACTIVO), MS05 (solicitudes de asistencia) y MS08 (auditoría), con 20 a 120 ms de
@@ -63,6 +51,14 @@ Las peticiones de más de 5 s se buscan en el log de MS04:
 docker compose logs ms04 | grep "Petición lenta"
 ```
 
-**Supuestos:** las rutas de MS01, MS02 y MS05 aún no están acordadas (decisiones abiertas 2 a 4 de los
-requerimientos), así que los dobles responden a cualquier ruta `GET` (MS02) o `POST` (MS05) bajo `/api/v1/`. Cuando
-se acuerden, ajustar `dobles/mappings/`.
+**Dobles del Gateway** (`dobles/mappings/`), con las rutas que MS04 usa por defecto:
+
+| Servicio | Ruta | Respuesta |
+|---|---|---|
+| MS01 | `GET /api/v1/users/by-role` | Página vacía |
+| MS02 | `GET /api/v1/safe-zones/{id}` | Zona segura `ACTIVO` con el id pedido |
+| MS05 | `POST /api/v1/incidentes/eventos/{eventoId}` | `201` con `idIncidente` |
+| MS08 | `POST /api/v1/audit/events` | `202` |
+
+El script llama a MS04 directamente con las cabeceras que inyecta el Gateway: `X-User-Id`, `X-User-Role` y
+`X-User-Permission` con los permisos de la asignación inicial de cada rol.

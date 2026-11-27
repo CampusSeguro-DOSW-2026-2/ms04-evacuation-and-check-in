@@ -15,9 +15,9 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.util.Json;
 import tools.jackson.databind.JsonNode;
 
 /**
- * Pide los nombres a MS01 con {@code POST /api/v1/users/batch} (RF-MS01-09) como ruta interna con la clave de
- * servicio de MS04. MS01 debe autorizar a ms04 en INTERNAL_ALLOWED_SERVICES (decisión abierta n.º 2): mientras no
- * lo haga responde 403 y las listas salen con el nombre nulo (RN-MS04-25)
+ * Requests the names and emails of the users to MS01 through {@code POST /api/v1/users/batch} (RF-MS01-09), an
+ * internal route called with the service key of MS04, which MS01 admits in its allowed services. If MS01 does not
+ * answer, the lists are delivered with null names (RN-MS04-25)
  */
 public class UsuarioNombresClientImpl implements UsuarioNombresClient {
 

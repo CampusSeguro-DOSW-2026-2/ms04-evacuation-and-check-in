@@ -20,11 +20,6 @@ public enum ErrorCode {
     UNSUPPORTED_MEDIA_TYPE(415, "TIPO_NO_SOPORTADO", "Tipo de contenido no soportado."),
     BUSINESS_RULE(422, "REGLA_NEGOCIO", "La operación no cumple una regla de negocio."),
     INTERNAL_ERROR(500, "ERROR_INTERNO", "Error interno del servidor."),
-    /**
-     * Temporal: lo usan las operaciones del contrato que todavía no tienen su lógica. No está en el catálogo de
-     * los Estándares y debe desaparecer cuando todas estén implementadas
-     */
-    NOT_IMPLEMENTED(501, "NO_IMPLEMENTADO", "Operación pendiente de implementar."),
     /** Código propio de MS04: MS01, MS02 o MS05 no responden (RNF-MS04-11) */
     DEPENDENCY_UNAVAILABLE(503, "DEPENDENCIA_NO_DISPONIBLE",
             "El servicio no está disponible en este momento. Intente de nuevo.");

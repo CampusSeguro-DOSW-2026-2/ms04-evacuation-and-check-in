@@ -16,10 +16,12 @@ Requiero asistencia, No estoy en el campus) y consolidación por punto de encuen
 ## Documentación
 
 * Requerimientos, formularios, modelo de datos y contrato OpenAPI: repositorio
-  [documentation](https://github.com/CampusSeguro-DOSW-2026-2/documentation), carpeta `ms04-evacuation-check-in`.
+  [documentation](https://github.com/CampusSeguro-DOSW-2026-2/documentation), carpeta
+  [`ms04-evacuation-and-check-in`](https://github.com/CampusSeguro-DOSW-2026-2/documentation/tree/main/ms04-evacuation-and-check-in).
 * Reglas transversales (cabeceras, errores, llamadas internas, auditoría):
-  [Estándares de Integración](https://github.com/CampusSeguro-DOSW-2026-2/documentation/wiki/Est%C3%A1ndares-de-Integraci%C3%B3n-y-Contratos-Transversales).
-* Permisos: [Matriz Rol‐Permiso](https://github.com/CampusSeguro-DOSW-2026-2/documentation/wiki/Matriz-Rol%E2%80%90Permiso).
+  [`integration/standards.md`](https://github.com/CampusSeguro-DOSW-2026-2/documentation/blob/main/integration/standards.md).
+* Permisos:
+  [`integration/permissions-matrix.md`](https://github.com/CampusSeguro-DOSW-2026-2/documentation/blob/main/integration/permissions-matrix.md).
 
 ## Tecnología
 
@@ -42,8 +44,9 @@ docker compose up -d --build
 # 3. Comprobar que arrancó: 200 {"status":"UP"}
 curl http://localhost:8084/actuator/health
 
-# 4. Sin el Gateway, la identidad se envía a mano (el Gateway las inyecta en producción)
+# 4. Sin el Gateway, la identidad se envía a mano (el Gateway la inyecta en producción)
 curl -H "X-User-Id: 3f6c2a9e-8b1d-4c7a-9e2f-1a5b7c9d0e42" -H "X-User-Role: ESTUDIANTE" \
+     -H "X-User-Permission: ms04:checkin:read_own,ms04:checkin:write,ms04:assistance:request" \
      http://localhost:8084/api/v1/chi/eventos/activos
 
 # 5. Bajar los contenedores (con -v también se borra la base de datos)
@@ -62,15 +65,21 @@ use el `.env` (la aplicación lo lee al arrancar): `mvn spring-boot:run`.
 mvn verify
 ```
 
-Necesita **Docker en ejecución**: las pruebas de acceso a datos y la de la aplicación completa levantan un PostgreSQL
-real con Testcontainers y le aplican los scripts de `database/`. Genera la cobertura en
+No necesita Docker ni una base de datos: todas las pruebas usan JUnit 5, Mockito y MockMvc. Genera la cobertura en
 `target/site/jacoco/jacoco.xml`. El pipeline (`.github/workflows/ci.yml`) hace lo mismo, analiza con SonarCloud
 cuando existe el secreto `SONAR_TOKEN` y construye la imagen Docker (ver [CI/CD](#cicd)).
 
-Las pruebas de rendimiento y concurrencia (RNF-MS04-01, 02, 04 y 06) no corren con `mvn verify` porque lanzan 500
-hilos: se ejecutan con `mvn verify -Prendimiento`. La prueba de carga HTTP con k6 y el protocolo de la prueba de
-usabilidad (RNF-MS04-07) están en [`rendimiento/`](rendimiento/README.md). Las peticiones de más de 5 s quedan en el
-log como `Petición lenta` con su Correlation ID (umbral en `RENDIMIENTO_UMBRAL_LENTO_MS`).
+| Tipo | Qué cubre | Clases |
+|---|---|---|
+| Unitarias de services | Reglas de negocio de cada requerimiento, con repositorios y clientes simulados con Mockito | `service/*Test` |
+| Contrato HTTP | Rutas, permisos de la matriz, validación de entradas y forma de las respuestas, con `@WebMvcTest` y la cadena de seguridad real | `controller/*HttpTest`, `security/SecurityHttpTest` |
+| Clientes salientes | Llamadas a MS01, MS02, MS05 y MS08 contra un servidor HTTP local que hace de Gateway | `client/*Test`, `audit/AuditEventPublisherTest` |
+| Persistencia sin base de datos | Coherencia entre los scripts de `database/` y las entidades, restricciones, vista del estado vigente, trigger de solo inserción y consultas y bloqueos de los repositorios | `repository/*Test`, `entity/EntitiesTest` |
+| Aplicación | Arranque con la configuración real de `application.yaml` (sin fuente de datos ni JPA) y los valores de esa configuración | `ApplicationTest`, `ApplicationConfigurationTest` |
+
+La prueba de carga HTTP con k6 y el protocolo de la prueba de usabilidad (RNF-MS04-07) están en
+[`rendimiento/`](rendimiento/README.md). Las peticiones de más de 5 s quedan en el log como `Petición lenta` con su
+Correlation ID (umbral en `RENDIMIENTO_UMBRAL_LENTO_MS`).
 
 ## CI/CD
 
@@ -83,8 +92,7 @@ log como `Petición lenta` con su Correlation ID (umbral en `RENDIMIENTO_UMBRAL_
 ## Despliegue en la nube (prueba y producción)
 
 MS04 corre en su propia VM, detrás del API Gateway. La guía completa, con los valores del GW, es
-[Conexión al API Gateway](https://github.com/CampusSeguro-DOSW-2026-2/documentation/wiki/Conexi%C3%B3n-al-API-Gateway)
-de la wiki:
+[`integration/gateway-connection.md`](https://github.com/CampusSeguro-DOSW-2026-2/documentation/blob/main/integration/gateway-connection.md):
 * El firewall solo acepta la IP del GW en `443` (producción) y `8443` (prueba), y la IP de quien administra en `22`.
 * Un Caddy de borde exige el certificado de cliente del GW (mTLS).
 * Prueba y producción comparten la VM, cada una con su stack y sus secretos.
@@ -181,50 +189,46 @@ Operación *(VM)*: `cd ~/campusseguro/ms04/test && docker compose ps && docker c
 Operación *(VM BD)*: `cd ~/campusseguro/ms04-db && docker compose -f infra/db/docker-compose.db.yml ps` (nunca
 `down -v`: borra las bases de datos).
 
-## Estructura y dónde va cada feature
+## Estructura
 
-Los controllers y services ya existen con el contrato completo (`api/swagger.yml` de la documentación). Lo que aún
-no tiene lógica responde `501 NO_IMPLEMENTADO`. Cada feature del Jira tiene sus propias clases, para que no se
-pisen entre sí: al implementar, se completa el service y se reemplaza su `ApiException.noImplementado(...)`.
+Cada feature del Jira tiene sus propias clases:
 
-| Feature (Jira) | Controller | Service | Estado |
-|---|---|---|---|
-| RF-MS04-01 Consultar eventos activos (KAIR-572) | `EventoActivoController` | `EventoActivoService` | Implementado |
-| RF-MS04-02 y RF-MS04-03 Registrar y actualizar el check-in (KAIR-573, KAIR-574) | `CheckinController` | `CheckinService` | Implementado |
-| RF-MS04-04 Solicitud de asistencia a MS05 (KAIR-575) | no tiene (lo llama `CheckinService`) | `SolicitudAsistenciaService` | Pendiente |
-| RF-MS04-05 Consultar el propio estado (KAIR-576) | `EstadoPropioController` | `EstadoPropioService` | Implementado |
-| RF-MS04-06, 07 y 08 Dashboard (KAIR-577, KAIR-578, KAIR-579) | `DashboardController` | `DashboardService` | RF-06 y 07 implementados; 08 pendiente |
-| RF-MS04-09 Histórico (KAIR-580) | `HistorialController` | `HistorialService` | Pendiente |
-| RF-MS04-10 Resultados (KAIR-583) | `ResultadosController` | `ResultadosService` | Implementado |
-| RF-MS04-11 Recibir el estado del evento (KAIR-571) | `EventoInternoController` | `EstadoEventoService` | Implementado |
-| RF-MS04-12 Detalle de check-ins para MS06 (KAIR-581) | `EventoInternoController` | `DetalleCheckinsService` | Implementado |
-| RF-MS04-13 Consultar eventos (KAIR-582) | `ConsultaEventoController` | `ConsultaEventoService` | Implementado |
+| Feature (Jira) | Controller | Service |
+|---|---|---|
+| RF-MS04-01 Consultar eventos activos (KAIR-572) | `EventoActivoController` | `EventoActivoService` |
+| RF-MS04-02 y RF-MS04-03 Registrar y actualizar el check-in (KAIR-573, KAIR-574) | `CheckinController` | `CheckinService` |
+| RF-MS04-04 Solicitud de asistencia a MS05 (KAIR-575) | no tiene (lo llama `CheckinService`; el reenvío periódico es `ReenvioSolicitudesTarea`) | `SolicitudAsistenciaService` |
+| RF-MS04-05 Consultar el propio estado (KAIR-576) | `EstadoPropioController` | `EstadoPropioService` |
+| RF-MS04-06, 07 y 08 Dashboard (KAIR-577, KAIR-578, KAIR-579) | `DashboardController` | `DashboardService` |
+| RF-MS04-09 Histórico (KAIR-580) | `HistorialController` | `HistorialService` |
+| RF-MS04-10 Resultados (KAIR-583) | `ResultadosController` | `ResultadosService` |
+| RF-MS04-11 Recibir el estado del evento (KAIR-571) | `EventoInternoController` | `EstadoEventoService` |
+| RF-MS04-12 Detalle de check-ins para MS06 (KAIR-581) | `EventoInternoController` | `DetalleCheckinsService` |
+| RF-MS04-13 Consultar eventos (KAIR-582) | `ConsultaEventoController` | `ConsultaEventoService` |
 
-Piezas compartidas ya hechas, que no hay que volver a escribir:
+Piezas compartidas:
 
 * **Datos:** `entity/` y `repository/` (el estado vigente es la vista `v_checkins_vigentes`; `checkins` solo admite
   INSERT, un trigger lo garantiza; `CheckinRepository#bloquearUsuarioEnEvento` serializa los reportes de un usuario).
-* **Errores:** lance `ApiException.noEncontrado(...)`, `.conflicto(...)`, `.reglaNegocio(...)`,
+* **Errores:** `ApiException.noEncontrado(...)`, `.conflicto(...)`, `.reglaNegocio(...)`,
   `.dependenciaNoDisponible()`, etc.; `GlobalExceptionHandler` los convierte en el `ErrorResponse` de los Estándares.
-* **Seguridad:** el controller recibe `RequesterIdentity` (de `X-User-Id` y `X-User-Role`) y verifica el permiso con
-  `PermissionChecker`. Las rutas internas de MS06 las protege `SecurityConfig` por `X-Service-Name`.
+* **Seguridad:** el controller recibe `RequesterIdentity` (de `X-User-Id`, `X-User-Role` y `X-User-Permission`) y
+  verifica el permiso con `PermissionChecker`. Las rutas internas de MS06 las protege `SecurityConfig` por
+  `X-Service-Name`.
 * **Auditoría:** `AuditRecorder` envía el evento a MS08 sin afectar la respuesta si MS08 falla.
 * **Paginación:** `Paginacion.validar(page, size)` y `PageResponse`.
-* **Población objetivo (MS01):** `PoblacionObjetivoClient` devuelve los usuarios ACTIVOS de los roles convocados
-  (RN-MS04-15), o vacío si MS01 no responde. Lo usan los resultados (RF-MS04-10) y sirve para los pendientes
-  (RF-MS04-07). La ruta de MS01 (`GET /api/v1/users/by-role`) está pendiente de acordar (decisión abierta n.º 2).
+* **Población objetivo (MS01):** `PoblacionObjetivoClient` consulta `GET /api/v1/users/by-role` de MS01 (RF-MS01-09)
+  y devuelve los usuarios ACTIVOS de los roles convocados (RN-MS04-15), o vacío si MS01 no responde. La usan los
+  pendientes (RF-MS04-07) y los resultados (RF-MS04-10).
 
 Los ids que vienen de MS02 (punto de encuentro, edificio, espacio) son UUID, como en MS02.
 
-## Condición de cierre
+## Verificación de los requerimientos
 
-MS04 es integrable cuando pasan los criterios de aceptación de RF-MS04-01 a RF-MS04-13 y se verifican RNF-MS04-01
-a RNF-MS04-07 (historia KAIR-606). Al implementar una feature, actualice su columna *Estado* en la tabla anterior.
-
-| Verificación | Cómo | Estado |
-|---|---|---|
-| Criterios de RF-MS04-01 a 13 | `mvn verify` | 10 de 13 implementados (01, 02, 03, 05, 06, 07, 10, 11, 12 y 13); faltan 04, 08 y 09 |
-| RNF-MS04-01, 02, 04 y 06 | `mvn verify -Prendimiento` y k6 ([`rendimiento/`](rendimiento/README.md)) | Listas para ejecutar (ya están RF-02/03, 06 y 11) |
-| RNF-MS04-03 (MS05 caído no impide el check-in) | Pruebas de RF-MS04-04 | Pendiente |
-| RNF-MS04-05 (sin escrituras en un evento finalizado) | Pruebas de RF-MS04-02/03 y 11 | Pendiente |
-| RNF-MS04-07 (3 interacciones) | [Prueba de usabilidad](rendimiento/prueba-usabilidad.md), manual con el frontend | Pendiente |
+| Verificación | Cómo |
+|---|---|
+| Criterios de RF-MS04-01 a RF-MS04-13 | `mvn verify` |
+| RNF-MS04-01, 02, 04 y 06 (tiempos de respuesta, carga y concurrencia) | k6 ([`rendimiento/`](rendimiento/README.md)) |
+| RNF-MS04-03 (MS05 caído no impide el check-in) | `CheckinServiceTest` y `SolicitudAsistenciaServiceTest` |
+| RNF-MS04-05 (sin escrituras en un evento finalizado) | `CheckinServiceTest`, `EstadoEventoServiceTest` y `SchemaScriptsTest` |
+| RNF-MS04-07 (3 interacciones) | [Prueba de usabilidad](rendimiento/prueba-usabilidad.md), manual con el frontend |

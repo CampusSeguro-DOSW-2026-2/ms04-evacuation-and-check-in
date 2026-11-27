@@ -1,11 +1,10 @@
 {
-  "name": "MS02: cualquier consulta GET responde un punto de encuentro ACTIVO con el id pedido (contrato pendiente, decisión abierta n.º 3)",
-  "priority": 10,
-  "request": { "method": "GET", "urlPathPattern": "/api/v1/.*" },
+  "name": "MS02: GET /api/v1/safe-zones/{id} responde una zona segura ACTIVA con el id pedido",
+  "request": { "method": "GET", "urlPathPattern": "/api/v1/safe-zones/[^/]+" },
   "response": {
     "status": 200,
     "headers": { "Content-Type": "application/json" },
-    "body": "{\"id\":\"{{regexExtract request.path '[^/]+$'}}\",\"estado\":\"ACTIVO\"}",
+    "body": "{\"id\":\"{{regexExtract request.path '[^/]+$'}}\",\"codigo\":\"MP-01\",\"nombre\":\"Punto de encuentro de prueba\",\"estado\":\"ACTIVO\"}",
     "transformers": ["response-template"],
     "delayDistribution": { "type": "uniform", "lower": 20, "upper": 120 }
   }
