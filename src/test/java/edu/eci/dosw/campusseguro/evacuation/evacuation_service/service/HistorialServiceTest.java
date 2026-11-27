@@ -41,247 +41,252 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.Checki
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.EventoRepository;
 
 /**
- * Lógica de RF-MS04-09 (histórico de check-ins del evento) con los repositorios simulados: cada reporte llega con
- * su usuario, estado, punto o ubicación y fecha, en el orden que entrega la consulta, y la paginación y los filtros
- * llegan tal como se piden
+ * RF-MS04-09 History of the check-ins of the event, with the repositories replaced by mocks: each report arrives with
+ * its user, state, point or location and date, in the order of the query, and the pagination and the filters reach
+ * the query as they are requested
  */
 @ExtendWith(MockitoExtension.class)
 class HistorialServiceTest {
 
-    private static final UUID EVENTO = UUID.fromString("7c1d5b2e-4f3a-4e8b-9a61-0d2f8c3b5a17");
+    private static final UUID EVENT = UUID.fromString("7c1d5b2e-4f3a-4e8b-9a61-0d2f8c3b5a17");
     private static final UUID ANA = UUID.fromString("3f6c2a9e-8b1d-4c7a-9e2f-1a5b7c9d0e42");
     private static final UUID LUIS = UUID.fromString("5d2e8f10-6a4b-4c93-b7e1-3f9a0c2d4e68");
-    private static final UUID PUNTO_A = UUID.fromString("7a1d4e2b-5c3f-4a8e-b9d0-2e6f1c4a7b35");
-    private static final UUID EDIFICIO = UUID.fromString("0b6f3d1a-2c4e-4f58-8a97-5d3e1b7c9a20");
-    private static final Instant PRIMERO = Instant.parse("2026-11-20T15:02:05Z");
-    private static final Instant SEGUNDO = Instant.parse("2026-11-20T15:04:12Z");
-    private static final UUID SIN_USUARIO = null;
-    private static final EstadoCheckin SIN_ESTADO = null;
+    private static final UUID POINT_A = UUID.fromString("7a1d4e2b-5c3f-4a8e-b9d0-2e6f1c4a7b35");
+    private static final UUID BUILDING = UUID.fromString("0b6f3d1a-2c4e-4f58-8a97-5d3e1b7c9a20");
+    private static final Instant FIRST = Instant.parse("2026-11-20T15:02:05Z");
+    private static final Instant SECOND = Instant.parse("2026-11-20T15:04:12Z");
+    private static final UUID NO_USER = null;
+    private static final EstadoCheckin NO_STATE = null;
 
     @Mock
-    private EventoRepository eventos;
+    private EventoRepository events;
 
     @Mock
     private CheckinRepository checkins;
 
     @Mock
-    private UsuarioNombresClient nombres;
+    private UsuarioNombresClient names;
 
     private HistorialService service;
 
     /**
-     * Crea el service con los repositorios simulados y un evento que existe
+     * Creates the service with the mocked repositories and an event that exists
      */
     @BeforeEach
-    void crearElService() {
-        service = new HistorialService(eventos, checkins, nombres);
-        lenient().when(eventos.existsById(EVENTO)).thenReturn(true);
+    void setUp() {
+        service = new HistorialService(events, checkins, names);
+        lenient().when(events.existsById(EVENT)).thenReturn(true);
     }
 
     /**
-     * Crea un check-in como lo devuelve la base de datos, con el id y la fecha que asigna ella
+     * Creates a check-in as the database returns it, with the id and the date that it assigns
      *
-     * @param usuario usuario que reporta
-     * @param estado estado reportado
-     * @param punto punto de encuentro, solo con SAFE
-     * @param tipo tipo de ubicación, solo con NEEDS_ASSISTANCE
-     * @param ubicacion id de la ubicación, solo con NEEDS_ASSISTANCE
-     * @param registrado fecha y hora del reporte
-     * @return el check-in con su id y su fecha de registro
+     * @param user user that reports
+     * @param state reported state
+     * @param point meeting point, only with SAFE
+     * @param type location type, only with NEEDS_ASSISTANCE
+     * @param location location id, only with NEEDS_ASSISTANCE
+     * @param registeredAt date of the report
+     * @return the check-in with its id and registration date
      */
-    private Checkin checkin(UUID usuario, EstadoCheckin estado, UUID punto, TipoUbicacion tipo, UUID ubicacion,
-            Instant registrado) {
-        Checkin checkin = new Checkin(EVENTO, usuario, estado, punto, tipo, ubicacion);
+    private Checkin checkin(UUID user, EstadoCheckin state, UUID point, TipoUbicacion type, UUID location,
+            Instant registeredAt) {
+        Checkin checkin = new Checkin(EVENT, user, state, point, type, location);
         ReflectionTestUtils.setField(checkin, "id", UUID.randomUUID());
-        ReflectionTestUtils.setField(checkin, "registradoEn", registrado);
+        ReflectionTestUtils.setField(checkin, "registradoEn", registeredAt);
         return checkin;
     }
 
     /**
-     * Cada check-in llega con su id, usuario, estado, punto de encuentro y fecha de registro
+     * Each check-in arrives with its id, user, state, meeting point and registration date
      */
     @Test
-    void cadaCheckinLlegaConSuIdUsuarioEstadoPuntoYFecha() {
-        Checkin aSalvo = checkin(ANA, EstadoCheckin.SAFE, PUNTO_A, null, null, PRIMERO);
-        when(checkins.buscarHistorial(EVENTO, SIN_USUARIO, SIN_ESTADO, PageRequest.of(0, 20)))
-                .thenReturn(new PageImpl<>(List.of(aSalvo), PageRequest.of(0, 20), 1));
+    void eachCheckinArrivesWithItsIdUserStatePointAndDate() {
+        Checkin safe = checkin(ANA, EstadoCheckin.SAFE, POINT_A, null, null, FIRST);
+        when(checkins.buscarHistorial(EVENT, NO_USER, NO_STATE, PageRequest.of(0, 20)))
+                .thenReturn(new PageImpl<>(List.of(safe), PageRequest.of(0, 20), 1));
 
-        PageResponse<RegistroHistorial> respuesta = service.historial(EVENTO, SIN_USUARIO, SIN_ESTADO, 0, 20);
+        PageResponse<RegistroHistorial> answer = service.historial(EVENT, NO_USER, NO_STATE, 0, 20);
 
-        assertEquals(1, respuesta.contenido().size());
-        RegistroHistorial registro = respuesta.contenido().get(0);
-        assertEquals(aSalvo.getId(), registro.checkinId());
-        assertEquals(ANA, registro.usuarioId());
-        assertEquals(EstadoCheckin.SAFE, registro.estado());
-        assertEquals(PUNTO_A, registro.puntoEncuentroId());
-        assertNull(registro.ubicacion());
-        assertEquals(PRIMERO, registro.registradoEn());
+        assertEquals(1, answer.contenido().size());
+        RegistroHistorial record = answer.contenido().get(0);
+        assertEquals(safe.getId(), record.checkinId());
+        assertEquals(ANA, record.usuarioId());
+        assertEquals(EstadoCheckin.SAFE, record.estado());
+        assertEquals(POINT_A, record.puntoEncuentroId());
+        assertNull(record.ubicacion());
+        assertEquals(FIRST, record.registradoEn());
     }
 
     /**
-     * Cada registro trae el nombre y el correo que entrega MS01, pedidos una sola vez por persona de la página; quien
-     * no aparece en la respuesta de MS01 queda con ambos nulos (RN-MS04-25)
+     * Each record brings the name and the email of MS01, requested once per person of the page; who is missing in
+     * the answer of MS01 keeps both null (RN-MS04-25)
      */
     @Test
-    void cadaRegistroLlegaConElNombreYElCorreoDeMs01() {
-        Checkin deAna = checkin(ANA, EstadoCheckin.EVACUATING, null, null, null, PRIMERO);
-        Checkin otroDeAna = checkin(ANA, EstadoCheckin.SAFE, PUNTO_A, null, null, SEGUNDO);
-        Checkin deLuis = checkin(LUIS, EstadoCheckin.OFF_CAMPUS, null, null, null, SEGUNDO);
-        when(checkins.buscarHistorial(EVENTO, SIN_USUARIO, SIN_ESTADO, PageRequest.of(0, 20)))
-                .thenReturn(new PageImpl<>(List.of(deAna, otroDeAna, deLuis), PageRequest.of(0, 20), 3));
-        when(nombres.datosDe(List.of(ANA, LUIS)))
+    void eachRecordArrivesWithTheNameAndTheEmailOfMs01() {
+        Checkin ofAna = checkin(ANA, EstadoCheckin.EVACUATING, null, null, null, FIRST);
+        Checkin anotherOfAna = checkin(ANA, EstadoCheckin.SAFE, POINT_A, null, null, SECOND);
+        Checkin ofLuis = checkin(LUIS, EstadoCheckin.OFF_CAMPUS, null, null, null, SECOND);
+        when(checkins.buscarHistorial(EVENT, NO_USER, NO_STATE, PageRequest.of(0, 20)))
+                .thenReturn(new PageImpl<>(List.of(ofAna, anotherOfAna, ofLuis), PageRequest.of(0, 20), 3));
+        when(names.datosDe(List.of(ANA, LUIS)))
                 .thenReturn(Map.of(ANA, new DatosUsuario("Ana Pérez", "ana.perez@escuelaing.edu.co")));
 
-        List<RegistroHistorial> registros = service.historial(EVENTO, SIN_USUARIO, SIN_ESTADO, 0, 20).contenido();
+        List<RegistroHistorial> records = service.historial(EVENT, NO_USER, NO_STATE, 0, 20).contenido();
 
-        assertEquals("Ana Pérez", registros.get(0).nombre());
-        assertEquals("ana.perez@escuelaing.edu.co", registros.get(0).correo());
-        assertEquals("ana.perez@escuelaing.edu.co", registros.get(1).correo());
-        assertNull(registros.get(2).nombre());
-        assertNull(registros.get(2).correo());
+        assertEquals("Ana Pérez", records.get(0).nombre());
+        assertEquals("ana.perez@escuelaing.edu.co", records.get(0).correo());
+        assertEquals("ana.perez@escuelaing.edu.co", records.get(1).correo());
+        assertNull(records.get(2).nombre());
+        assertNull(records.get(2).correo());
     }
 
     /**
-     * Quien pidió asistencia llega con su ubicación y sin punto de encuentro
+     * Who asked for assistance arrives with the location and without meeting point
      */
     @Test
-    void quienPidioAsistenciaLlegaConSuUbicacion() {
-        Checkin asistencia = checkin(LUIS, EstadoCheckin.NEEDS_ASSISTANCE, null, TipoUbicacion.EDIFICIO, EDIFICIO,
-                SEGUNDO);
-        when(checkins.buscarHistorial(EVENTO, SIN_USUARIO, SIN_ESTADO, PageRequest.of(0, 20)))
-                .thenReturn(new PageImpl<>(List.of(asistencia), PageRequest.of(0, 20), 1));
+    void whoAskedForAssistanceArrivesWithTheLocation() {
+        Checkin assistance = checkin(LUIS, EstadoCheckin.NEEDS_ASSISTANCE, null, TipoUbicacion.EDIFICIO, BUILDING,
+                SECOND);
+        when(checkins.buscarHistorial(EVENT, NO_USER, NO_STATE, PageRequest.of(0, 20)))
+                .thenReturn(new PageImpl<>(List.of(assistance), PageRequest.of(0, 20), 1));
 
-        RegistroHistorial registro = service.historial(EVENTO, SIN_USUARIO, SIN_ESTADO, 0, 20).contenido().get(0);
+        RegistroHistorial record = service.historial(EVENT, NO_USER, NO_STATE, 0, 20).contenido().get(0);
 
-        assertEquals(EstadoCheckin.NEEDS_ASSISTANCE, registro.estado());
-        assertNull(registro.puntoEncuentroId());
-        assertEquals(new Ubicacion(TipoUbicacion.EDIFICIO, EDIFICIO), registro.ubicacion());
+        assertEquals(EstadoCheckin.NEEDS_ASSISTANCE, record.estado());
+        assertNull(record.puntoEncuentroId());
+        assertEquals(new Ubicacion(TipoUbicacion.EDIFICIO, BUILDING), record.ubicacion());
     }
 
     /**
-     * EVACUATING y OFF_CAMPUS no traen punto de encuentro ni ubicación
+     * EVACUATING and OFF_CAMPUS carry neither meeting point nor location
      *
-     * @param estado estado sin punto ni ubicación
+     * @param state state without point nor location
      */
     @ParameterizedTest
     @EnumSource(value = EstadoCheckin.class, names = { "EVACUATING", "OFF_CAMPUS" })
-    void losEstadosSinPuntoNiUbicacionLlegaSinEllos(EstadoCheckin estado) {
-        when(checkins.buscarHistorial(EVENTO, SIN_USUARIO, SIN_ESTADO, PageRequest.of(0, 20))).thenReturn(
-                new PageImpl<>(List.of(checkin(ANA, estado, null, null, null, PRIMERO)), PageRequest.of(0, 20), 1));
+    void theStatesWithoutPlaceArriveWithoutIt(EstadoCheckin state) {
+        when(checkins.buscarHistorial(EVENT, NO_USER, NO_STATE, PageRequest.of(0, 20))).thenReturn(
+                new PageImpl<>(List.of(checkin(ANA, state, null, null, null, FIRST)), PageRequest.of(0, 20), 1));
 
-        RegistroHistorial registro = service.historial(EVENTO, SIN_USUARIO, SIN_ESTADO, 0, 20).contenido().get(0);
+        RegistroHistorial record = service.historial(EVENT, NO_USER, NO_STATE, 0, 20).contenido().get(0);
 
-        assertEquals(estado, registro.estado());
-        assertNull(registro.puntoEncuentroId());
-        assertNull(registro.ubicacion());
+        assertEquals(state, record.estado());
+        assertNull(record.puntoEncuentroId());
+        assertNull(record.ubicacion());
     }
 
     /**
-     * Todos los reportes de una persona llegan, en el orden que entrega la consulta (RN-MS04-08)
+     * Every report of a person arrives, in the order of the query (RN-MS04-08)
      */
     @Test
-    void todosLosReportesDeUnaPersonaLleganEnElOrdenDeLaConsulta() {
-        Checkin evacuando = checkin(ANA, EstadoCheckin.EVACUATING, null, null, null, PRIMERO);
-        Checkin asistencia = checkin(ANA, EstadoCheckin.NEEDS_ASSISTANCE, null, TipoUbicacion.EDIFICIO, EDIFICIO,
-                SEGUNDO);
-        Checkin aSalvo = checkin(ANA, EstadoCheckin.SAFE, PUNTO_A, null, null, Instant.parse("2026-11-20T15:09:40Z"));
-        when(checkins.buscarHistorial(EVENTO, SIN_USUARIO, SIN_ESTADO, PageRequest.of(0, 20))).thenReturn(
-                new PageImpl<>(List.of(evacuando, asistencia, aSalvo), PageRequest.of(0, 20), 3));
+    void everyReportOfAPersonArrivesInTheOrderOfTheQuery() {
+        Checkin evacuating = checkin(ANA, EstadoCheckin.EVACUATING, null, null, null, FIRST);
+        Checkin assistance = checkin(ANA, EstadoCheckin.NEEDS_ASSISTANCE, null, TipoUbicacion.EDIFICIO, BUILDING,
+                SECOND);
+        Checkin safe = checkin(ANA, EstadoCheckin.SAFE, POINT_A, null, null, Instant.parse("2026-11-20T15:09:40Z"));
+        when(checkins.buscarHistorial(EVENT, NO_USER, NO_STATE, PageRequest.of(0, 20))).thenReturn(
+                new PageImpl<>(List.of(evacuating, assistance, safe), PageRequest.of(0, 20), 3));
 
-        PageResponse<RegistroHistorial> respuesta = service.historial(EVENTO, SIN_USUARIO, SIN_ESTADO, 0, 20);
+        PageResponse<RegistroHistorial> answer = service.historial(EVENT, NO_USER, NO_STATE, 0, 20);
 
         assertEquals(List.of(EstadoCheckin.EVACUATING, EstadoCheckin.NEEDS_ASSISTANCE, EstadoCheckin.SAFE),
-                respuesta.contenido().stream().map(RegistroHistorial::estado).toList());
-        assertEquals(List.of(evacuando.getId(), asistencia.getId(), aSalvo.getId()),
-                respuesta.contenido().stream().map(RegistroHistorial::checkinId).toList());
-        assertEquals(3, respuesta.totalElementos());
+                answer.contenido().stream()
+                        .map(RegistroHistorial::estado)
+                        .toList());
+        assertEquals(List.of(evacuating.getId(), assistance.getId(), safe.getId()),
+                answer.contenido().stream()
+                        .map(RegistroHistorial::checkinId)
+                        .toList());
+        assertEquals(3, answer.totalElementos());
     }
 
     /**
-     * A4: un evento sin check-ins devuelve la lista vacía, con total 0 y sin páginas
+     * A4: an event without check-ins returns the empty list, with total 0 and without pages
      */
     @Test
-    void unEventoSinCheckinsDevuelveLaListaVacia() {
-        when(checkins.buscarHistorial(EVENTO, SIN_USUARIO, SIN_ESTADO, PageRequest.of(0, 20)))
+    void anEventWithoutCheckinsReturnsTheEmptyList() {
+        when(checkins.buscarHistorial(EVENT, NO_USER, NO_STATE, PageRequest.of(0, 20)))
                 .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 20), 0));
 
-        PageResponse<RegistroHistorial> respuesta = service.historial(EVENTO, SIN_USUARIO, SIN_ESTADO, 0, 20);
+        PageResponse<RegistroHistorial> answer = service.historial(EVENT, NO_USER, NO_STATE, 0, 20);
 
-        assertEquals(List.of(), respuesta.contenido());
-        assertEquals(0, respuesta.page());
-        assertEquals(20, respuesta.size());
-        assertEquals(0, respuesta.totalElementos());
-        assertEquals(0, respuesta.totalPaginas());
+        assertEquals(List.of(), answer.contenido());
+        assertEquals(0, answer.page());
+        assertEquals(20, answer.size());
+        assertEquals(0, answer.totalElementos());
+        assertEquals(0, answer.totalPaginas());
     }
 
     /**
-     * Una página más allá de la última viene vacía y conserva el total y la página pedida
+     * A page beyond the last one is empty and keeps the total and the requested page
      */
     @Test
-    void unaPaginaMasAllaDeLaUltimaVieneVaciaYConservaElTotal() {
-        when(checkins.buscarHistorial(EVENTO, SIN_USUARIO, SIN_ESTADO, PageRequest.of(7, 20)))
+    void aPageBeyondTheLastOneIsEmptyAndKeepsTheTotal() {
+        when(checkins.buscarHistorial(EVENT, NO_USER, NO_STATE, PageRequest.of(7, 20)))
                 .thenReturn(new PageImpl<>(List.of(), PageRequest.of(7, 20), 45));
 
-        PageResponse<RegistroHistorial> respuesta = service.historial(EVENTO, SIN_USUARIO, SIN_ESTADO, 7, 20);
+        PageResponse<RegistroHistorial> answer = service.historial(EVENT, NO_USER, NO_STATE, 7, 20);
 
-        assertEquals(List.of(), respuesta.contenido());
-        assertEquals(7, respuesta.page());
-        assertEquals(45, respuesta.totalElementos());
-        assertEquals(3, respuesta.totalPaginas());
+        assertEquals(List.of(), answer.contenido());
+        assertEquals(7, answer.page());
+        assertEquals(45, answer.totalElementos());
+        assertEquals(3, answer.totalPaginas());
     }
 
     /**
-     * El total de páginas sale del total de check-ins y el tamaño de página
+     * The total of pages comes from the total of check-ins and the page size
      */
     @Test
-    void elTotalDePaginasSaleDelTotalYElTamano() {
-        Checkin checkin = checkin(ANA, EstadoCheckin.EVACUATING, null, null, null, PRIMERO);
-        when(checkins.buscarHistorial(EVENTO, SIN_USUARIO, SIN_ESTADO, PageRequest.of(2, 20)))
+    void theTotalOfPagesComesFromTheTotalAndTheSize() {
+        Checkin checkin = checkin(ANA, EstadoCheckin.EVACUATING, null, null, null, FIRST);
+        when(checkins.buscarHistorial(EVENT, NO_USER, NO_STATE, PageRequest.of(2, 20)))
                 .thenReturn(new PageImpl<>(List.of(checkin), PageRequest.of(2, 20), 41));
 
-        PageResponse<RegistroHistorial> respuesta = service.historial(EVENTO, SIN_USUARIO, SIN_ESTADO, 2, 20);
+        PageResponse<RegistroHistorial> answer = service.historial(EVENT, NO_USER, NO_STATE, 2, 20);
 
-        assertEquals(2, respuesta.page());
-        assertEquals(20, respuesta.size());
-        assertEquals(41, respuesta.totalElementos());
-        assertEquals(3, respuesta.totalPaginas());
+        assertEquals(2, answer.page());
+        assertEquals(20, answer.size());
+        assertEquals(41, answer.totalElementos());
+        assertEquals(3, answer.totalPaginas());
     }
 
     /**
-     * El usuario, el estado y la página pedidos llegan tal cual a la consulta
+     * The requested user, state and page reach the query unchanged
      */
     @Test
-    void losFiltrosYLaPaginaPedidosLleganALaConsulta() {
-        when(checkins.buscarHistorial(EVENTO, ANA, EstadoCheckin.SAFE, PageRequest.of(2, 5)))
+    void theRequestedFiltersAndPageReachTheQuery() {
+        when(checkins.buscarHistorial(EVENT, ANA, EstadoCheckin.SAFE, PageRequest.of(2, 5)))
                 .thenReturn(new PageImpl<>(List.of(), PageRequest.of(2, 5), 0));
 
-        service.historial(EVENTO, ANA, EstadoCheckin.SAFE, 2, 5);
+        service.historial(EVENT, ANA, EstadoCheckin.SAFE, 2, 5);
 
-        verify(checkins).buscarHistorial(EVENTO, ANA, EstadoCheckin.SAFE, PageRequest.of(2, 5));
+        verify(checkins).buscarHistorial(EVENT, ANA, EstadoCheckin.SAFE, PageRequest.of(2, 5));
     }
 
     /**
-     * Sin filtros se pide todo el evento
+     * Without filters the whole event is requested
      */
     @Test
-    void sinFiltrosSePideTodoElEvento() {
-        when(checkins.buscarHistorial(EVENTO, SIN_USUARIO, SIN_ESTADO, PageRequest.of(0, 100)))
+    void withoutFiltersTheWholeEventIsRequested() {
+        when(checkins.buscarHistorial(EVENT, NO_USER, NO_STATE, PageRequest.of(0, 100)))
                 .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 100), 0));
 
-        service.historial(EVENTO, SIN_USUARIO, SIN_ESTADO, 0, 100);
+        service.historial(EVENT, NO_USER, NO_STATE, 0, 100);
 
-        verify(checkins).buscarHistorial(EVENTO, SIN_USUARIO, SIN_ESTADO, PageRequest.of(0, 100));
+        verify(checkins).buscarHistorial(EVENT, NO_USER, NO_STATE, PageRequest.of(0, 100));
     }
 
     /**
-     * A3: un evento que no existe responde 404 y no se consultan los check-ins
+     * A3: an event that does not exist answers 404 and the check-ins are not queried
      */
     @Test
-    void unEventoInexistenteResponde404SinConsultarLosCheckins() {
-        UUID otro = UUID.randomUUID();
-        when(eventos.existsById(otro)).thenReturn(false);
+    void anUnknownEventAnswers404WithoutQueryingTheCheckins() {
+        UUID other = UUID.randomUUID();
+        when(events.existsById(other)).thenReturn(false);
 
-        ApiException error = assertThrows(ApiException.class, () -> service.historial(otro, SIN_USUARIO, SIN_ESTADO, 0, 20));
+        ApiException error = assertThrows(ApiException.class,
+                () -> service.historial(other, NO_USER, NO_STATE, 0, 20));
 
         assertEquals(ErrorCode.NOT_FOUND, error.getCode());
         assertEquals("Evento no encontrado.", error.getMessage());
@@ -289,19 +294,19 @@ class HistorialServiceTest {
     }
 
     /**
-     * Consultar el histórico no agrega, modifica ni elimina nada (RN-MS04-17)
+     * Querying the history adds, modifies and deletes nothing (RN-MS04-17)
      */
     @Test
-    void consultarElHistoricoSoloLeeLosDatos() {
-        when(checkins.buscarHistorial(EVENTO, SIN_USUARIO, SIN_ESTADO, PageRequest.of(0, 20)))
+    void queryingTheHistoryOnlyReadsTheData() {
+        when(checkins.buscarHistorial(EVENT, NO_USER, NO_STATE, PageRequest.of(0, 20)))
                 .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 20), 0));
 
-        service.historial(EVENTO, SIN_USUARIO, SIN_ESTADO, 0, 20);
+        service.historial(EVENT, NO_USER, NO_STATE, 0, 20);
 
         verify(checkins, never()).save(any());
         verify(checkins, never()).flush();
-        verify(eventos, never()).save(any());
-        verify(checkins).buscarHistorial(EVENTO, SIN_USUARIO, SIN_ESTADO, PageRequest.of(0, 20));
+        verify(events, never()).save(any());
+        verify(checkins).buscarHistorial(EVENT, NO_USER, NO_STATE, PageRequest.of(0, 20));
         verifyNoMoreInteractions(checkins);
     }
 }

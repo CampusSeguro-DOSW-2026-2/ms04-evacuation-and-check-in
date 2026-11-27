@@ -19,59 +19,84 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.EstadoEven
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.Evento;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.EventoRepository;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.RequesterIdentity;
-import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.IdentidadesDePrueba;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.TestIdentities;
 
+/**
+ * RF-MS04-01 Query active events, with the repository replaced by a mock: the search by the roles of the user and
+ * the answer of each event in the order of the query
+ */
 class EventoActivoServiceTest {
 
-    private static final UUID USUARIO = UUID.fromString("3f6c2a9e-8b1d-4c7a-9e2f-1a5b7c9d0e42");
+    private static final UUID USER = UUID.fromString("3f6c2a9e-8b1d-4c7a-9e2f-1a5b7c9d0e42");
 
-    private EventoRepository eventos;
+    private EventoRepository events;
     private EventoActivoService service;
 
+    /**
+     * Creates the service with a mocked repository
+     */
     @BeforeEach
-    void preparar() {
-        eventos = mock(EventoRepository.class);
-        service = new EventoActivoService(eventos);
+    void setUp() {
+        events = mock(EventoRepository.class);
+        service = new EventoActivoService(events);
     }
 
-    private static Evento activo(String nombre) {
-        Evento evento = new Evento(UUID.randomUUID());
-        evento.setNombre(nombre);
-        evento.setSimulacro(true);
-        evento.setEstado(EstadoEvento.EN_EJECUCION);
-        evento.setFechaInicio(Instant.parse("2026-11-20T15:00:00Z"));
-        evento.setRolesConvocados(List.of("ESTUDIANTE"));
-        return evento;
+    /**
+     * Event in execution that convenes students
+     *
+     * @param name name of the event
+     * @return the event
+     */
+    private static Evento active(String name) {
+        Evento event = new Evento(UUID.randomUUID());
+        event.setNombre(name);
+        event.setSimulacro(true);
+        event.setEstado(EstadoEvento.EN_EJECUCION);
+        event.setFechaInicio(Instant.parse("2026-11-20T15:00:00Z"));
+        event.setRolesConvocados(List.of("ESTUDIANTE"));
+        return event;
     }
 
+    /**
+     * The events are searched by the roles of the user in alphabetical order
+     */
     @Test
-    void buscaPorLosRolesDelUsuarioEnOrdenAlfabetico() {
-        RequesterIdentity usuario = IdentidadesDePrueba.identidad(USUARIO, "ESTUDIANTE", "BRIGADISTA");
+    void searchesByTheRolesOfTheUserInAlphabeticalOrder() {
+        RequesterIdentity user = TestIdentities.identity(USER, "ESTUDIANTE", "BRIGADISTA");
 
-        service.activos(usuario);
+        service.activos(user);
 
-        verify(eventos).buscarActivosPorRoles(List.of("BRIGADISTA", "ESTUDIANTE"));
-        verifyNoMoreInteractions(eventos);
+        verify(events).buscarActivosPorRoles(List.of("BRIGADISTA", "ESTUDIANTE"));
+        verifyNoMoreInteractions(events);
     }
 
+    /**
+     * Each event becomes its answer keeping the order of the query
+     */
     @Test
-    void convierteCadaEventoEnSuRespuestaConservandoElOrden() {
-        Evento primero = activo("Primero");
-        Evento segundo = activo("Segundo");
-        when(eventos.buscarActivosPorRoles(List.of("ESTUDIANTE"))).thenReturn(List.of(primero, segundo));
+    void eachEventBecomesItsAnswerKeepingTheOrder() {
+        Evento first = active("Primero");
+        Evento second = active("Segundo");
+        when(events.buscarActivosPorRoles(List.of("ESTUDIANTE"))).thenReturn(List.of(first, second));
 
-        List<EventoResponse> respuesta = service.activos(IdentidadesDePrueba.identidad(USUARIO, "ESTUDIANTE"));
+        List<EventoResponse> answer = service.activos(TestIdentities.identity(USER, "ESTUDIANTE"));
 
-        assertEquals(List.of(primero.getId(), segundo.getId()),
-                respuesta.stream().map(EventoResponse::eventoId).toList());
-        assertEquals(List.of("Primero", "Segundo"), respuesta.stream().map(EventoResponse::nombre).toList());
-        assertTrue(respuesta.stream().allMatch(EventoResponse::checkinHabilitado));
+        assertEquals(List.of(first.getId(), second.getId()), answer.stream()
+                .map(EventoResponse::eventoId)
+                .toList());
+        assertEquals(List.of("Primero", "Segundo"), answer.stream()
+                .map(EventoResponse::nombre)
+                .toList());
+        assertTrue(answer.stream().allMatch(EventoResponse::checkinHabilitado));
     }
 
+    /**
+     * Without active events the answer is an empty list
+     */
     @Test
-    void sinEventosActivosDevuelveUnaListaVaciaYNoFalla() {
-        when(eventos.buscarActivosPorRoles(List.of("ESTUDIANTE"))).thenReturn(List.of());
+    void withoutActiveEventsReturnsAnEmptyList() {
+        when(events.buscarActivosPorRoles(List.of("ESTUDIANTE"))).thenReturn(List.of());
 
-        assertTrue(service.activos(IdentidadesDePrueba.identidad(USUARIO, "ESTUDIANTE")).isEmpty());
+        assertTrue(service.activos(TestIdentities.identity(USER, "ESTUDIANTE")).isEmpty());
     }
 }

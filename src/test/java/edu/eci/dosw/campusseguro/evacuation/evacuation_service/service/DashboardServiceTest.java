@@ -33,8 +33,8 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.test.util.ReflectionTestUtils;
 
-import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.PoblacionObjetivoClient;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.DatosUsuario;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.PoblacionObjetivoClient;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.UsuarioNombresClient;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.ZonasBrigadistaClient;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.ZonasBrigadistaClient.ZonasAsignadas;
@@ -60,42 +60,61 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.Checki
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.EventoRepository;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.SolicitudAsistenciaRepository;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.RequesterIdentity;
-import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.IdentidadesDePrueba;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.TestIdentities;
 
 /**
- * Lógica de RF-MS04-06 (consolidar el estado del evento y listar personas por estado y punto de encuentro) y de
- * RF-MS04-07 (personas pendientes) y RF-MS04-08 (personas que requieren asistencia) con los repositorios y los clientes
- * de MS01 y MS05 simulados
+ * RF-MS04-06 (consolidate the state of the event and list people by state and meeting point), RF-MS04-07 (pending
+ * people) and RF-MS04-08 (people who need assistance), with the repositories and the MS01 and MS05 clients replaced
+ * by mocks
  */
 @ExtendWith(MockitoExtension.class)
 class DashboardServiceTest {
 
-    private static final UUID EVENTO = UUID.fromString("7c1d5b2e-4f3a-4e8b-9a61-0d2f8c3b5a17");
+    private static final UUID EVENT = UUID.fromString("7c1d5b2e-4f3a-4e8b-9a61-0d2f8c3b5a17");
     private static final UUID ANA = UUID.fromString("3f6c2a9e-8b1d-4c7a-9e2f-1a5b7c9d0e42");
     private static final UUID LUIS = UUID.fromString("5d2e8f10-6a4b-4c93-b7e1-3f9a0c2d4e68");
-    private static final UUID BRIGADISTA = UUID.fromString("6c0d2f48-1b3e-4a57-9d8c-2e4f6a8b0c13");
-    private static final UUID PUNTO_A = UUID.fromString("7a1d4e2b-5c3f-4a8e-b9d0-2e6f1c4a7b35");
-    private static final UUID PUNTO_B = UUID.fromString("d3f5a7c9-1b2e-4d6f-8a0c-4e6b8d0f2a41");
-    private static final UUID EDIFICIO = UUID.fromString("0b6f3d1a-2c4e-4f58-8a97-5d3e1b7c9a20");
-    private static final UUID ESPACIO = UUID.fromString("4e9c7a15-3b2d-4f60-a8e1-7c5d9b3f1a28");
-    private static final Instant REGISTRADO = Instant.parse("2026-11-20T15:04:12Z");
-    private static final Instant CALCULADO = Instant.parse("2026-11-20T15:10:00Z");
-    private static final Clock RELOJ = Clock.fixed(CALCULADO, ZoneOffset.UTC);
-    private static final Set<UUID> NADA = Set.of();
+    private static final UUID BRIGADIER = UUID.fromString("6c0d2f48-1b3e-4a57-9d8c-2e4f6a8b0c13");
+    private static final UUID POINT_A = UUID.fromString("7a1d4e2b-5c3f-4a8e-b9d0-2e6f1c4a7b35");
+    private static final UUID POINT_B = UUID.fromString("d3f5a7c9-1b2e-4d6f-8a0c-4e6b8d0f2a41");
+    private static final UUID BUILDING = UUID.fromString("0b6f3d1a-2c4e-4f58-8a97-5d3e1b7c9a20");
+    private static final UUID SPACE = UUID.fromString("4e9c7a15-3b2d-4f60-a8e1-7c5d9b3f1a28");
+    private static final Instant REGISTERED_AT = Instant.parse("2026-11-20T15:04:12Z");
+    private static final Instant CALCULATED_AT = Instant.parse("2026-11-20T15:10:00Z");
+    private static final Clock CLOCK = Clock.fixed(CALCULATED_AT, ZoneOffset.UTC);
+    private static final Set<UUID> NONE = Set.of();
+    private static final Instant FIRST_REPORT = Instant.parse("2026-11-20T15:02:00Z");
+    private static final Instant SECOND_REPORT = Instant.parse("2026-11-20T15:04:12Z");
+    private static final Instant START = Instant.parse("2026-11-20T14:00:00Z");
+    private static final List<String> ROLES = List.of("ESTUDIANTE", "PROFESOR");
 
-    /** Fila de conteo como la devuelve la base de datos */
-    private record Fila(String estado, UUID punto, long total) implements ConteoPorEstadoYPunto {
+    /**
+     * Count row as the database returns it
+     *
+     * @param state state of the check-in
+     * @param point meeting point, only with SAFE
+     * @param total number of people
+     */
+    private record Row(String state, UUID point, long total) implements ConteoPorEstadoYPunto {
 
+        /**
+         * @return the state of the row
+         */
         @Override
         public String getEstado() {
-            return estado;
+            return state;
         }
 
+        /**
+         * @return the meeting point of the row
+         */
         @Override
         public UUID getPunto() {
-            return punto;
+            return point;
         }
 
+        /**
+         * @return the total of the row
+         */
         @Override
         public long getTotal() {
             return total;
@@ -103,1051 +122,1040 @@ class DashboardServiceTest {
     }
 
     @Mock
-    private EventoRepository eventos;
+    private EventoRepository events;
 
     @Mock
     private CheckinRepository checkins;
 
     @Mock
-    private SolicitudAsistenciaRepository solicitudes;
+    private SolicitudAsistenciaRepository requests;
 
     @Mock
-    private UsuarioNombresClient nombres;
+    private UsuarioNombresClient names;
 
     @Mock
-    private ZonasBrigadistaClient zonasBrigadista;
+    private ZonasBrigadistaClient brigadierZones;
 
     @Mock
-    private PoblacionObjetivoClient poblacionObjetivo;
+    private PoblacionObjetivoClient targetPopulation;
 
     private DashboardService service;
 
     /**
-     * Correo de prueba de una persona, derivado de su nombre
+     * Test email of a person, derived from the name
      *
-     * @param nombre nombre completo
-     * @return el correo institucional de prueba
+     * @param name full name
+     * @return the institutional test email
      */
-    private static String correo(String nombre) {
-        return nombre.toLowerCase().replace(' ', '.') + "@escuelaing.edu.co";
+    private static String email(String name) {
+        return name.toLowerCase().replace(' ', '.') + "@escuelaing.edu.co";
     }
 
     /**
-     * Datos que entrega MS01 para una persona de prueba
+     * Data that MS01 delivers for a test person
      *
-     * @param nombre nombre completo
-     * @return el nombre y su correo de prueba
+     * @param name full name
+     * @return the name and its test email
      */
-    private static DatosUsuario datos(String nombre) {
-        return new DatosUsuario(nombre, correo(nombre));
+    private static DatosUsuario data(String name) {
+        return new DatosUsuario(name, email(name));
     }
 
     /**
-     * Crea el service con el reloj fijo
+     * Creates the service with the fixed clock
      */
     @BeforeEach
-    void crearService() {
-        service = new DashboardService(eventos, checkins, solicitudes, nombres, zonasBrigadista, poblacionObjetivo,
-                RELOJ);
+    void setUp() {
+        service = new DashboardService(events, checkins, requests, names, brigadierZones, targetPopulation, CLOCK);
     }
 
     /**
-     * Crea el evento en el estado indicado
+     * Creates the event in the given state
      *
-     * @param estado estado del evento
-     * @return el evento
+     * @param state state of the event
+     * @return the event
      */
-    private Evento evento(EstadoEvento estado) {
-        Evento evento = new Evento(EVENTO);
-        evento.setEstado(estado);
-        return evento;
+    private Evento event(EstadoEvento state) {
+        Evento event = new Evento(EVENT);
+        event.setEstado(state);
+        return event;
     }
 
     /**
-     * Crea un check-in como lo devuelve la base de datos
+     * Creates a check-in as the database returns it
      *
-     * @param usuario usuario que reporta
-     * @param estado estado reportado
-     * @param punto punto de encuentro, solo con SAFE
-     * @return el check-in con su fecha de registro
+     * @param user user that reports
+     * @param state reported state
+     * @param point meeting point, only with SAFE
+     * @return the check-in with its registration date
      */
-    private Checkin checkin(UUID usuario, EstadoCheckin estado, UUID punto) {
-        Checkin checkin = new Checkin(EVENTO, usuario, estado, punto, null, null);
-        ReflectionTestUtils.setField(checkin, "registradoEn", REGISTRADO);
+    private Checkin checkin(UUID user, EstadoCheckin state, UUID point) {
+        Checkin checkin = new Checkin(EVENT, user, state, point, null, null);
+        ReflectionTestUtils.setField(checkin, "registradoEn", REGISTERED_AT);
         return checkin;
     }
 
     /**
-     * Identidad con los roles indicados
+     * Identity with the given roles
      *
-     * @param roles roles del solicitante
-     * @return la identidad
+     * @param roles roles of the requester
+     * @return the identity
      */
-    private RequesterIdentity con(String... roles) {
-        return IdentidadesDePrueba.identidad(BRIGADISTA, roles);
+    private RequesterIdentity with(String... roles) {
+        return TestIdentities.identity(BRIGADIER, roles);
     }
 
-    // ---------------------------------------------------------------- consolidado
-
     /**
-     * Arma los totales de los cuatro estados, las personas a salvo por punto, el total reportado y la fecha del
-     * cálculo
+     * Builds the totals of the four states, the safe people by point, the reported total and the date of the
+     * calculation
      */
     @Test
-    void consolidadoArmaLosTotalesLosPuntosYLaFecha() {
-        when(eventos.findById(EVENTO)).thenReturn(Optional.of(evento(EstadoEvento.EN_EJECUCION)));
-        when(checkins.contarVigentes(EVENTO, false, NADA, NADA, NADA)).thenReturn(List.of(
-                new Fila("SAFE", PUNTO_A, 7), new Fila("SAFE", PUNTO_B, 3), new Fila("EVACUATING", null, 4),
-                new Fila("NEEDS_ASSISTANCE", null, 2), new Fila("OFF_CAMPUS", null, 5)));
+    void consolidationBuildsTheTotalsThePointsAndTheDate() {
+        when(events.findById(EVENT)).thenReturn(Optional.of(event(EstadoEvento.EN_EJECUCION)));
+        when(checkins.contarVigentes(EVENT, false, NONE, NONE, NONE)).thenReturn(List.of(
+                new Row("SAFE", POINT_A, 7), new Row("SAFE", POINT_B, 3), new Row("EVACUATING", null, 4),
+                new Row("NEEDS_ASSISTANCE", null, 2), new Row("OFF_CAMPUS", null, 5)));
 
-        Consolidado consolidado = service.consolidado(EVENTO, con("COORDINADOR"));
+        Consolidado consolidation = service.consolidado(EVENT, with("COORDINADOR"));
 
-        assertEquals(EVENTO, consolidado.eventoId());
-        assertEquals(EstadoEvento.EN_EJECUCION, consolidado.estadoEvento());
-        assertEquals(10, consolidado.totalesPorEstado().safe());
-        assertEquals(4, consolidado.totalesPorEstado().evacuating());
-        assertEquals(2, consolidado.totalesPorEstado().needsAssistance());
-        assertEquals(5, consolidado.totalesPorEstado().offCampus());
-        assertEquals(21, consolidado.totalReportados());
-        assertEquals(List.of(new TotalPorPunto(PUNTO_A, 7), new TotalPorPunto(PUNTO_B, 3)),
-                consolidado.porPuntoEncuentro());
-        assertEquals(CALCULADO, consolidado.calculadoEn());
-        verifyNoInteractions(zonasBrigadista, nombres);
+        assertEquals(EVENT, consolidation.eventoId());
+        assertEquals(EstadoEvento.EN_EJECUCION, consolidation.estadoEvento());
+        assertEquals(10, consolidation.totalesPorEstado().safe());
+        assertEquals(4, consolidation.totalesPorEstado().evacuating());
+        assertEquals(2, consolidation.totalesPorEstado().needsAssistance());
+        assertEquals(5, consolidation.totalesPorEstado().offCampus());
+        assertEquals(21, consolidation.totalReportados());
+        assertEquals(List.of(new TotalPorPunto(POINT_A, 7), new TotalPorPunto(POINT_B, 3)),
+                consolidation.porPuntoEncuentro());
+        assertEquals(CALCULATED_AT, consolidation.calculadoEn());
+        verifyNoInteractions(brigadierZones, names);
     }
 
     /**
-     * La fecha del cálculo se entrega en milisegundos
+     * The date of the calculation is delivered in milliseconds
      */
     @Test
-    void consolidadoEntregaLaFechaDelCalculoEnMilisegundos() {
-        Clock reloj = Clock.fixed(Instant.parse("2026-11-20T15:10:00.123456789Z"), ZoneOffset.UTC);
-        service = new DashboardService(eventos, checkins, solicitudes, nombres, zonasBrigadista, poblacionObjetivo,
-                reloj);
-        when(eventos.findById(EVENTO)).thenReturn(Optional.of(evento(EstadoEvento.EN_EJECUCION)));
-        when(checkins.contarVigentes(EVENTO, false, NADA, NADA, NADA)).thenReturn(List.of());
+    void consolidationDeliversTheDateInMilliseconds() {
+        Clock clock = Clock.fixed(Instant.parse("2026-11-20T15:10:00.123456789Z"), ZoneOffset.UTC);
+        service = new DashboardService(events, checkins, requests, names, brigadierZones, targetPopulation, clock);
+        when(events.findById(EVENT)).thenReturn(Optional.of(event(EstadoEvento.EN_EJECUCION)));
+        when(checkins.contarVigentes(EVENT, false, NONE, NONE, NONE)).thenReturn(List.of());
 
-        Consolidado consolidado = service.consolidado(EVENTO, con("COORDINADOR"));
+        Consolidado consolidation = service.consolidado(EVENT, with("COORDINADOR"));
 
-        assertEquals(Instant.parse("2026-11-20T15:10:00.123Z"), consolidado.calculadoEn());
+        assertEquals(Instant.parse("2026-11-20T15:10:00.123Z"), consolidation.calculadoEn());
     }
 
     /**
-     * Sin check-ins devuelve los cuatro estados en 0, sin puntos y con total 0
+     * Without check-ins it returns the four states in 0, without points and with total 0
      */
     @Test
-    void consolidadoSinCheckinsDevuelveLosCuatroEstadosEnCero() {
-        when(eventos.findById(EVENTO)).thenReturn(Optional.of(evento(EstadoEvento.PROGRAMADO)));
-        when(checkins.contarVigentes(EVENTO, false, NADA, NADA, NADA)).thenReturn(List.of());
+    void consolidationWithoutCheckinsReturnsTheFourStatesInZero() {
+        when(events.findById(EVENT)).thenReturn(Optional.of(event(EstadoEvento.PROGRAMADO)));
+        when(checkins.contarVigentes(EVENT, false, NONE, NONE, NONE)).thenReturn(List.of());
 
-        Consolidado consolidado = service.consolidado(EVENTO, con("ORGANIZADOR"));
+        Consolidado consolidation = service.consolidado(EVENT, with("ORGANIZADOR"));
 
-        assertEquals(0, consolidado.totalesPorEstado().safe());
-        assertEquals(0, consolidado.totalesPorEstado().evacuating());
-        assertEquals(0, consolidado.totalesPorEstado().needsAssistance());
-        assertEquals(0, consolidado.totalesPorEstado().offCampus());
-        assertEquals(0, consolidado.totalReportados());
-        assertTrue(consolidado.porPuntoEncuentro().isEmpty());
+        assertEquals(0, consolidation.totalesPorEstado().safe());
+        assertEquals(0, consolidation.totalesPorEstado().evacuating());
+        assertEquals(0, consolidation.totalesPorEstado().needsAssistance());
+        assertEquals(0, consolidation.totalesPorEstado().offCampus());
+        assertEquals(0, consolidation.totalReportados());
+        assertTrue(consolidation.porPuntoEncuentro().isEmpty());
     }
 
     /**
-     * Funciona con el evento en cualquier estado y lo informa en la respuesta
+     * It works with the event in any state and reports it in the answer
      *
-     * @param estado estado del evento
+     * @param state state of the event
      */
     @ParameterizedTest
     @EnumSource(EstadoEvento.class)
-    void consolidadoFuncionaConElEventoEnCualquierEstado(EstadoEvento estado) {
-        when(eventos.findById(EVENTO)).thenReturn(Optional.of(evento(estado)));
-        when(checkins.contarVigentes(EVENTO, false, NADA, NADA, NADA)).thenReturn(List.of());
+    void consolidationWorksWithTheEventInAnyState(EstadoEvento state) {
+        when(events.findById(EVENT)).thenReturn(Optional.of(event(state)));
+        when(checkins.contarVigentes(EVENT, false, NONE, NONE, NONE)).thenReturn(List.of());
 
-        Consolidado consolidado = service.consolidado(EVENTO, con("AUDITOR"));
+        Consolidado consolidation = service.consolidado(EVENT, with("AUDITOR"));
 
-        assertEquals(estado, consolidado.estadoEvento());
+        assertEquals(state, consolidation.estadoEvento());
     }
 
     /**
-     * COORDINADOR, ORGANIZADOR y AUDITOR ven todo el evento sin consultar a MS05
+     * COORDINADOR, ORGANIZADOR and AUDITOR see the whole event without querying MS05
      *
-     * @param rol rol con acceso a todo el evento
+     * @param role role with access to the whole event
      */
     @ParameterizedTest
     @ValueSource(strings = { "COORDINADOR", "ORGANIZADOR", "AUDITOR" })
-    void consolidadoNoRestringeANingunRolConAccesoATodoElEvento(String rol) {
-        when(eventos.findById(EVENTO)).thenReturn(Optional.of(evento(EstadoEvento.EN_EJECUCION)));
-        when(checkins.contarVigentes(EVENTO, false, NADA, NADA, NADA)).thenReturn(List.of());
+    void consolidationDoesNotRestrictRolesWithAccessToTheWholeEvent(String role) {
+        when(events.findById(EVENT)).thenReturn(Optional.of(event(EstadoEvento.EN_EJECUCION)));
+        when(checkins.contarVigentes(EVENT, false, NONE, NONE, NONE)).thenReturn(List.of());
 
-        service.consolidado(EVENTO, con(rol));
+        service.consolidado(EVENT, with(role));
 
-        verifyNoInteractions(zonasBrigadista);
+        verifyNoInteractions(brigadierZones);
     }
 
     /**
-     * Un evento inexistente responde 404 sin consultar conteos ni zonas
+     * An unknown event answers 404 without querying counts nor zones
      */
     @Test
-    void consolidadoDeUnEventoInexistenteResponde404() {
-        when(eventos.findById(EVENTO)).thenReturn(Optional.empty());
+    void consolidationOfAnUnknownEventAnswers404() {
+        when(events.findById(EVENT)).thenReturn(Optional.empty());
 
         ApiException error = assertThrows(ApiException.class,
-                () -> service.consolidado(EVENTO, con("BRIGADISTA")));
+                () -> service.consolidado(EVENT, with("BRIGADISTA")));
 
         assertEquals(ErrorCode.NOT_FOUND, error.getCode());
         assertEquals(DashboardService.EVENTO_NO_ENCONTRADO, error.getMessage());
-        verifyNoInteractions(checkins, zonasBrigadista);
+        verifyNoInteractions(checkins, brigadierZones);
     }
 
     /**
-     * El BRIGADISTA pide sus zonas a MS05 y cuenta solo lo de ellas
+     * The brigadier asks MS05 for the zones and counts only what is in them
      */
     @Test
-    void consolidadoDelBrigadistaCuentaSoloSusZonas() {
-        ZonasAsignadas zonas = new ZonasAsignadas(Set.of(EDIFICIO), Set.of(ESPACIO), Set.of(PUNTO_A));
-        RequesterIdentity brigadista = con("BRIGADISTA");
-        when(eventos.findById(EVENTO)).thenReturn(Optional.of(evento(EstadoEvento.EN_EJECUCION)));
-        when(zonasBrigadista.zonasDe(brigadista, EVENTO)).thenReturn(zonas);
-        when(checkins.contarVigentes(EVENTO, true, Set.of(PUNTO_A), Set.of(EDIFICIO), Set.of(ESPACIO)))
-                .thenReturn(List.of(new Fila("SAFE", PUNTO_A, 6), new Fila("NEEDS_ASSISTANCE", null, 1)));
+    void consolidationOfTheBrigadierCountsOnlyTheirZones() {
+        ZonasAsignadas zones = new ZonasAsignadas(Set.of(BUILDING), Set.of(SPACE), Set.of(POINT_A));
+        RequesterIdentity brigadier = with("BRIGADISTA");
+        when(events.findById(EVENT)).thenReturn(Optional.of(event(EstadoEvento.EN_EJECUCION)));
+        when(brigadierZones.zonasDe(brigadier, EVENT)).thenReturn(zones);
+        when(checkins.contarVigentes(EVENT, true, Set.of(POINT_A), Set.of(BUILDING), Set.of(SPACE)))
+                .thenReturn(List.of(new Row("SAFE", POINT_A, 6), new Row("NEEDS_ASSISTANCE", null, 1)));
 
-        Consolidado consolidado = service.consolidado(EVENTO, brigadista);
+        Consolidado consolidation = service.consolidado(EVENT, brigadier);
 
-        assertEquals(6, consolidado.totalesPorEstado().safe());
-        assertEquals(0, consolidado.totalesPorEstado().evacuating());
-        assertEquals(1, consolidado.totalesPorEstado().needsAssistance());
-        assertEquals(0, consolidado.totalesPorEstado().offCampus());
-        assertEquals(7, consolidado.totalReportados());
-        assertEquals(List.of(new TotalPorPunto(PUNTO_A, 6)), consolidado.porPuntoEncuentro());
+        assertEquals(6, consolidation.totalesPorEstado().safe());
+        assertEquals(0, consolidation.totalesPorEstado().evacuating());
+        assertEquals(1, consolidation.totalesPorEstado().needsAssistance());
+        assertEquals(0, consolidation.totalesPorEstado().offCampus());
+        assertEquals(7, consolidation.totalReportados());
+        assertEquals(List.of(new TotalPorPunto(POINT_A, 6)), consolidation.porPuntoEncuentro());
     }
 
     /**
-     * Quien tiene BRIGADISTA y también un rol con acceso a todo el evento no queda restringido
+     * Who has BRIGADISTA and also a role with access to the whole event is not restricted
      */
     @Test
-    void consolidadoDeBrigadistaConOtroRolConAccesoNoSeRestringe() {
-        when(eventos.findById(EVENTO)).thenReturn(Optional.of(evento(EstadoEvento.EN_EJECUCION)));
-        when(checkins.contarVigentes(EVENTO, false, NADA, NADA, NADA)).thenReturn(List.of());
+    void aBrigadierWithAnotherRoleWithAccessIsNotRestricted() {
+        when(events.findById(EVENT)).thenReturn(Optional.of(event(EstadoEvento.EN_EJECUCION)));
+        when(checkins.contarVigentes(EVENT, false, NONE, NONE, NONE)).thenReturn(List.of());
 
-        service.consolidado(EVENTO, con("BRIGADISTA", "COORDINADOR"));
+        service.consolidado(EVENT, with("BRIGADISTA", "COORDINADOR"));
 
-        verifyNoInteractions(zonasBrigadista);
+        verifyNoInteractions(brigadierZones);
     }
 
     /**
-     * La restricción se decide por permisos y no por el nombre del rol (MR-07): un rol creado por el administrador
-     * con ms04:dashboard:read y sin ms04:history:read queda limitado a sus zonas, como el BRIGADISTA
+     * The restriction is decided by permissions and not by the name of the role (MR-07): a role created by the
+     * administrator with ms04:dashboard:read and without ms04:history:read is limited to its zones, like the
+     * brigadier
      */
     @Test
-    void unRolNuevoConDashboardSinHistorialSeRestringeASusZonas() {
-        RequesterIdentity jefeDePiso = new RequesterIdentity(BRIGADISTA, Set.of("JEFE_DE_PISO"),
+    void aNewRoleWithDashboardWithoutHistoryIsRestrictedToItsZones() {
+        RequesterIdentity floorLeader = new RequesterIdentity(BRIGADIER, Set.of("JEFE_DE_PISO"),
                 Set.of("ms04:dashboard:read"));
-        ZonasAsignadas zonas = new ZonasAsignadas(Set.of(), Set.of(), Set.of(PUNTO_A));
-        when(eventos.findById(EVENTO)).thenReturn(Optional.of(evento(EstadoEvento.EN_EJECUCION)));
-        when(zonasBrigadista.zonasDe(jefeDePiso, EVENTO)).thenReturn(zonas);
-        when(checkins.contarVigentes(EVENTO, true, Set.of(PUNTO_A), Set.of(), Set.of())).thenReturn(List.of());
+        ZonasAsignadas zones = new ZonasAsignadas(Set.of(), Set.of(), Set.of(POINT_A));
+        when(events.findById(EVENT)).thenReturn(Optional.of(event(EstadoEvento.EN_EJECUCION)));
+        when(brigadierZones.zonasDe(floorLeader, EVENT)).thenReturn(zones);
+        when(checkins.contarVigentes(EVENT, true, Set.of(POINT_A), Set.of(), Set.of())).thenReturn(List.of());
 
-        service.consolidado(EVENTO, jefeDePiso);
+        service.consolidado(EVENT, floorLeader);
 
-        verify(zonasBrigadista).zonasDe(jefeDePiso, EVENTO);
+        verify(brigadierZones).zonasDe(floorLeader, EVENT);
     }
 
     /**
-     * Si el administrador le da ms04:history:read al rol BRIGADISTA, ese usuario ve todo el evento: el nombre del
-     * rol no decide la restricción
+     * If the administrator gives ms04:history:read to the brigadier role, that user sees the whole event: the name of
+     * the role does not decide the restriction
      */
     @Test
-    void unBrigadistaConHistorialVeTodoElEvento() {
-        RequesterIdentity brigadista = new RequesterIdentity(BRIGADISTA, Set.of("BRIGADISTA"),
+    void aBrigadierWithHistorySeesTheWholeEvent() {
+        RequesterIdentity brigadier = new RequesterIdentity(BRIGADIER, Set.of("BRIGADISTA"),
                 Set.of("ms04:dashboard:read", "ms04:history:read"));
-        when(eventos.findById(EVENTO)).thenReturn(Optional.of(evento(EstadoEvento.EN_EJECUCION)));
-        when(checkins.contarVigentes(EVENTO, false, NADA, NADA, NADA)).thenReturn(List.of());
+        when(events.findById(EVENT)).thenReturn(Optional.of(event(EstadoEvento.EN_EJECUCION)));
+        when(checkins.contarVigentes(EVENT, false, NONE, NONE, NONE)).thenReturn(List.of());
 
-        service.consolidado(EVENTO, brigadista);
+        service.consolidado(EVENT, brigadier);
 
-        verifyNoInteractions(zonasBrigadista);
+        verifyNoInteractions(brigadierZones);
     }
 
     /**
-     * Quien tiene BRIGADISTA y un rol sin acceso al dashboard sigue restringido a sus zonas
+     * Who has BRIGADISTA and a role without access to the dashboard stays restricted to their zones
      */
     @Test
-    void consolidadoDeBrigadistaConUnRolDeLaComunidadSigueRestringido() {
-        RequesterIdentity brigadista = con("BRIGADISTA", "ESTUDIANTE");
-        when(eventos.findById(EVENTO)).thenReturn(Optional.of(evento(EstadoEvento.EN_EJECUCION)));
-        when(zonasBrigadista.zonasDe(brigadista, EVENTO)).thenReturn(new ZonasAsignadas(NADA, NADA, NADA));
-        when(checkins.contarVigentes(EVENTO, true, NADA, NADA, NADA)).thenReturn(List.of());
+    void aBrigadierWithACommunityRoleStaysRestricted() {
+        RequesterIdentity brigadier = with("BRIGADISTA", "ESTUDIANTE");
+        when(events.findById(EVENT)).thenReturn(Optional.of(event(EstadoEvento.EN_EJECUCION)));
+        when(brigadierZones.zonasDe(brigadier, EVENT)).thenReturn(new ZonasAsignadas(NONE, NONE, NONE));
+        when(checkins.contarVigentes(EVENT, true, NONE, NONE, NONE)).thenReturn(List.of());
 
-        Consolidado consolidado = service.consolidado(EVENTO, brigadista);
+        Consolidado consolidation = service.consolidado(EVENT, brigadier);
 
-        assertEquals(0, consolidado.totalReportados());
+        assertEquals(0, consolidation.totalReportados());
     }
 
     /**
-     * Si MS05 no entrega las zonas, el BRIGADISTA recibe 503 y no se consulta nada más
+     * If MS05 does not deliver the zones, the brigadier gets 503 and nothing else is queried
      */
     @Test
-    void consolidadoDelBrigadistaSinZonasDeMs05Responde503() {
-        RequesterIdentity brigadista = con("BRIGADISTA");
-        when(eventos.findById(EVENTO)).thenReturn(Optional.of(evento(EstadoEvento.EN_EJECUCION)));
-        when(zonasBrigadista.zonasDe(brigadista, EVENTO)).thenThrow(ApiException.dependenciaNoDisponible());
+    void consolidationOfTheBrigadierWithoutZonesOfMs05Answers503() {
+        RequesterIdentity brigadier = with("BRIGADISTA");
+        when(events.findById(EVENT)).thenReturn(Optional.of(event(EstadoEvento.EN_EJECUCION)));
+        when(brigadierZones.zonasDe(brigadier, EVENT)).thenThrow(ApiException.dependenciaNoDisponible());
 
-        ApiException error = assertThrows(ApiException.class, () -> service.consolidado(EVENTO, brigadista));
+        ApiException error = assertThrows(ApiException.class, () -> service.consolidado(EVENT, brigadier));
 
         assertEquals(ErrorCode.DEPENDENCY_UNAVAILABLE, error.getCode());
         verifyNoInteractions(checkins);
     }
 
-    // ---------------------------------------------------------------- personas
-
     /**
-     * Lista las personas con su nombre de MS01, el estado vigente, el punto y la fecha, y los totales de la página
+     * Lists the people with their name from MS01, the current state, the point and the date, and the totals of the
+     * page
      */
     @Test
-    void personasListaConNombreEstadoPuntoYFecha() {
-        when(eventos.existsById(EVENTO)).thenReturn(true);
-        Page<Checkin> pagina = new PageImpl<>(
-                List.of(checkin(ANA, EstadoCheckin.SAFE, PUNTO_A), checkin(LUIS, EstadoCheckin.EVACUATING, null)),
+    void peopleListsNameStatePointAndDate() {
+        when(events.existsById(EVENT)).thenReturn(true);
+        Page<Checkin> page = new PageImpl<>(
+                List.of(checkin(ANA, EstadoCheckin.SAFE, POINT_A), checkin(LUIS, EstadoCheckin.EVACUATING, null)),
                 PageRequest.of(1, 2), 5);
-        when(checkins.buscarVigentes(EVENTO, null, null, false, NADA, NADA, NADA, PageRequest.of(1, 2)))
-                .thenReturn(pagina);
-        when(nombres.datosDe(List.of(ANA, LUIS)))
-                .thenReturn(Map.of(ANA, datos("Ana Pérez"), LUIS, datos("Luis Rojas")));
+        when(checkins.buscarVigentes(EVENT, null, null, false, NONE, NONE, NONE, PageRequest.of(1, 2)))
+                .thenReturn(page);
+        when(names.datosDe(List.of(ANA, LUIS)))
+                .thenReturn(Map.of(ANA, data("Ana Pérez"), LUIS, data("Luis Rojas")));
 
-        PageResponse<CheckinResumen> respuesta = service.personas(EVENTO, null, null, 1, 2, con("COORDINADOR"));
+        PageResponse<CheckinResumen> answer = service.personas(EVENT, null, null, 1, 2, with("COORDINADOR"));
 
         assertEquals(List.of(
-                new CheckinResumen(ANA, "Ana Pérez", correo("Ana Pérez"), EstadoCheckin.SAFE, PUNTO_A, REGISTRADO),
-                new CheckinResumen(LUIS, "Luis Rojas", correo("Luis Rojas"), EstadoCheckin.EVACUATING, null,
-                        REGISTRADO)),
-                respuesta.contenido());
-        assertEquals(1, respuesta.page());
-        assertEquals(2, respuesta.size());
-        assertEquals(5, respuesta.totalElementos());
-        assertEquals(3, respuesta.totalPaginas());
-        verifyNoInteractions(zonasBrigadista);
+                new CheckinResumen(ANA, "Ana Pérez", email("Ana Pérez"), EstadoCheckin.SAFE, POINT_A, REGISTERED_AT),
+                new CheckinResumen(LUIS, "Luis Rojas", email("Luis Rojas"), EstadoCheckin.EVACUATING, null,
+                        REGISTERED_AT)),
+                answer.contenido());
+        assertEquals(1, answer.page());
+        assertEquals(2, answer.size());
+        assertEquals(5, answer.totalElementos());
+        assertEquals(3, answer.totalPaginas());
+        verifyNoInteractions(brigadierZones);
     }
 
     /**
-     * Si MS01 no entrega los nombres, la lista sale con el nombre nulo
+     * If MS01 does not deliver the names, the list has a null name
      */
     @Test
-    void personasSinNombresDeMs01SaleConNombreNulo() {
-        when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(checkins.buscarVigentes(EVENTO, null, null, false, NADA, NADA, NADA, PageRequest.of(0, 20)))
+    void peopleWithoutNamesOfMs01HasNullName() {
+        when(events.existsById(EVENT)).thenReturn(true);
+        when(checkins.buscarVigentes(EVENT, null, null, false, NONE, NONE, NONE, PageRequest.of(0, 20)))
                 .thenReturn(new PageImpl<>(List.of(checkin(ANA, EstadoCheckin.OFF_CAMPUS, null)),
                         PageRequest.of(0, 20), 1));
-        when(nombres.datosDe(List.of(ANA))).thenReturn(Map.of());
+        when(names.datosDe(List.of(ANA))).thenReturn(Map.of());
 
-        PageResponse<CheckinResumen> respuesta = service.personas(EVENTO, null, null, 0, 20, con("AUDITOR"));
+        PageResponse<CheckinResumen> answer = service.personas(EVENT, null, null, 0, 20, with("AUDITOR"));
 
-        assertEquals(1, respuesta.contenido().size());
-        assertNull(respuesta.contenido().get(0).nombre());
-        assertEquals(ANA, respuesta.contenido().get(0).usuarioId());
+        assertEquals(1, answer.contenido().size());
+        assertNull(answer.contenido().get(0).nombre());
+        assertEquals(ANA, answer.contenido().get(0).usuarioId());
     }
 
     /**
-     * Pasa a la consulta el estado y el punto de encuentro del filtro
+     * The state and the meeting point of the filter reach the query
      */
     @Test
-    void personasAplicaElFiltroDeEstadoYPunto() {
-        when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(checkins.buscarVigentes(EVENTO, EstadoCheckin.SAFE, PUNTO_A, false, NADA, NADA, NADA,
+    void peopleAppliesTheFilterOfStateAndPoint() {
+        when(events.existsById(EVENT)).thenReturn(true);
+        when(checkins.buscarVigentes(EVENT, EstadoCheckin.SAFE, POINT_A, false, NONE, NONE, NONE,
                 PageRequest.of(0, 20))).thenReturn(Page.empty(PageRequest.of(0, 20)));
 
-        service.personas(EVENTO, EstadoCheckin.SAFE, PUNTO_A, 0, 20, con("ORGANIZADOR"));
+        service.personas(EVENT, EstadoCheckin.SAFE, POINT_A, 0, 20, with("ORGANIZADOR"));
 
-        verify(checkins).buscarVigentes(EVENTO, EstadoCheckin.SAFE, PUNTO_A, false, NADA, NADA, NADA,
+        verify(checkins).buscarVigentes(EVENT, EstadoCheckin.SAFE, POINT_A, false, NONE, NONE, NONE,
                 PageRequest.of(0, 20));
     }
 
     /**
-     * El punto de encuentro sin estado es válido: solo las personas a salvo tienen punto
+     * The meeting point without state is valid: only the safe people have a point
      */
     @Test
-    void personasAceptaElPuntoDeEncuentroSinEstado() {
-        when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(checkins.buscarVigentes(EVENTO, null, PUNTO_B, false, NADA, NADA, NADA, PageRequest.of(0, 20)))
+    void peopleAcceptsTheMeetingPointWithoutState() {
+        when(events.existsById(EVENT)).thenReturn(true);
+        when(checkins.buscarVigentes(EVENT, null, POINT_B, false, NONE, NONE, NONE, PageRequest.of(0, 20)))
                 .thenReturn(Page.empty(PageRequest.of(0, 20)));
 
-        PageResponse<CheckinResumen> respuesta = service.personas(EVENTO, null, PUNTO_B, 0, 20,
-                con("COORDINADOR"));
+        PageResponse<CheckinResumen> answer = service.personas(EVENT, null, POINT_B, 0, 20, with("COORDINADOR"));
 
-        assertTrue(respuesta.contenido().isEmpty());
-        assertEquals(0, respuesta.totalElementos());
+        assertTrue(answer.contenido().isEmpty());
+        assertEquals(0, answer.totalElementos());
     }
 
     /**
-     * El punto de encuentro con un estado distinto de SAFE responde 400 antes de consultar nada
+     * The meeting point with a state other than SAFE answers 400 before querying anything
      *
-     * @param estado estado distinto de SAFE
+     * @param state state other than SAFE
      */
     @ParameterizedTest
     @EnumSource(value = EstadoCheckin.class, names = { "EVACUATING", "NEEDS_ASSISTANCE", "OFF_CAMPUS" })
-    void personasConPuntoYEstadoDistintoDeSafeResponde400(EstadoCheckin estado) {
+    void peopleWithPointAndAStateOtherThanSafeAnswers400(EstadoCheckin state) {
         ApiException error = assertThrows(ApiException.class,
-                () -> service.personas(EVENTO, estado, PUNTO_A, 0, 20, con("COORDINADOR")));
+                () -> service.personas(EVENT, state, POINT_A, 0, 20, with("COORDINADOR")));
 
         assertEquals(ErrorCode.VALIDATION, error.getCode());
         assertEquals("punto_encuentro_id", error.getErrors().get(0).campo());
         assertEquals("El punto de encuentro solo aplica a Estoy a salvo.", error.getErrors().get(0).mensaje());
-        verifyNoInteractions(eventos, checkins, nombres, zonasBrigadista);
+        verifyNoInteractions(events, checkins, names, brigadierZones);
     }
 
     /**
-     * Un evento inexistente responde 404 sin consultar check-ins, nombres ni zonas, ni siquiera para un BRIGADISTA
+     * An unknown event answers 404 without querying check-ins, names nor zones, not even for a brigadier
      */
     @Test
-    void personasDeUnEventoInexistenteResponde404() {
-        when(eventos.existsById(EVENTO)).thenReturn(false);
+    void peopleOfAnUnknownEventAnswers404() {
+        when(events.existsById(EVENT)).thenReturn(false);
 
         ApiException error = assertThrows(ApiException.class,
-                () -> service.personas(EVENTO, null, null, 0, 20, con("BRIGADISTA")));
+                () -> service.personas(EVENT, null, null, 0, 20, with("BRIGADISTA")));
 
         assertEquals(ErrorCode.NOT_FOUND, error.getCode());
         assertEquals(DashboardService.EVENTO_NO_ENCONTRADO, error.getMessage());
-        verifyNoInteractions(checkins, nombres, zonasBrigadista);
+        verifyNoInteractions(checkins, names, brigadierZones);
     }
 
     /**
-     * El BRIGADISTA pide sus zonas a MS05 y lista solo lo de ellas
+     * The brigadier asks MS05 for the zones and lists only what is in them
      */
     @Test
-    void personasDelBrigadistaListaSoloSusZonas() {
-        RequesterIdentity brigadista = con("BRIGADISTA");
-        when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(zonasBrigadista.zonasDe(brigadista, EVENTO))
-                .thenReturn(new ZonasAsignadas(Set.of(EDIFICIO), Set.of(ESPACIO), Set.of(PUNTO_A)));
-        when(checkins.buscarVigentes(EVENTO, null, null, true, Set.of(PUNTO_A), Set.of(EDIFICIO), Set.of(ESPACIO),
+    void peopleOfTheBrigadierListsOnlyTheirZones() {
+        RequesterIdentity brigadier = with("BRIGADISTA");
+        when(events.existsById(EVENT)).thenReturn(true);
+        when(brigadierZones.zonasDe(brigadier, EVENT))
+                .thenReturn(new ZonasAsignadas(Set.of(BUILDING), Set.of(SPACE), Set.of(POINT_A)));
+        when(checkins.buscarVigentes(EVENT, null, null, true, Set.of(POINT_A), Set.of(BUILDING), Set.of(SPACE),
                 PageRequest.of(0, 20)))
-                .thenReturn(new PageImpl<>(List.of(checkin(ANA, EstadoCheckin.SAFE, PUNTO_A)),
+                .thenReturn(new PageImpl<>(List.of(checkin(ANA, EstadoCheckin.SAFE, POINT_A)),
                         PageRequest.of(0, 20), 1));
-        when(nombres.datosDe(List.of(ANA))).thenReturn(Map.of(ANA, datos("Ana Pérez")));
+        when(names.datosDe(List.of(ANA))).thenReturn(Map.of(ANA, data("Ana Pérez")));
 
-        PageResponse<CheckinResumen> respuesta = service.personas(EVENTO, null, null, 0, 20, brigadista);
+        PageResponse<CheckinResumen> answer = service.personas(EVENT, null, null, 0, 20, brigadier);
 
-        assertEquals(1, respuesta.totalElementos());
-        assertEquals("Ana Pérez", respuesta.contenido().get(0).nombre());
+        assertEquals(1, answer.totalElementos());
+        assertEquals("Ana Pérez", answer.contenido().get(0).nombre());
     }
 
     /**
-     * Si MS05 no entrega las zonas, el BRIGADISTA recibe 503 y no se consulta nada más
+     * If MS05 does not deliver the zones, the brigadier gets 503 and nothing else is queried
      */
     @Test
-    void personasDelBrigadistaSinZonasDeMs05Responde503() {
-        RequesterIdentity brigadista = con("BRIGADISTA");
-        when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(zonasBrigadista.zonasDe(brigadista, EVENTO)).thenThrow(ApiException.dependenciaNoDisponible());
+    void peopleOfTheBrigadierWithoutZonesOfMs05Answers503() {
+        RequesterIdentity brigadier = with("BRIGADISTA");
+        when(events.existsById(EVENT)).thenReturn(true);
+        when(brigadierZones.zonasDe(brigadier, EVENT)).thenThrow(ApiException.dependenciaNoDisponible());
 
         ApiException error = assertThrows(ApiException.class,
-                () -> service.personas(EVENTO, null, null, 0, 20, brigadista));
+                () -> service.personas(EVENT, null, null, 0, 20, brigadier));
 
         assertEquals(ErrorCode.DEPENDENCY_UNAVAILABLE, error.getCode());
-        verifyNoInteractions(checkins, nombres);
+        verifyNoInteractions(checkins, names);
     }
 
     /**
-     * Una página sin personas no falla: devuelve el contenido vacío con los totales en 0
+     * A page without people does not fail: it returns the empty content with the totals in 0
      *
-     * @param pagina número de página pedido
+     * @param page requested page number
      */
     @ParameterizedTest
     @ValueSource(ints = { 0, 7 })
-    void personasSinResultadosDevuelveUnaPaginaVacia(int pagina) {
-        when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(checkins.buscarVigentes(EVENTO, null, null, false, NADA, NADA, NADA, PageRequest.of(pagina, 20)))
-                .thenReturn(Page.empty(PageRequest.of(pagina, 20)));
+    void peopleWithoutResultsReturnsAnEmptyPage(int page) {
+        when(events.existsById(EVENT)).thenReturn(true);
+        when(checkins.buscarVigentes(EVENT, null, null, false, NONE, NONE, NONE, PageRequest.of(page, 20)))
+                .thenReturn(Page.empty(PageRequest.of(page, 20)));
 
-        PageResponse<CheckinResumen> respuesta = service.personas(EVENTO, null, null, pagina, 20,
-                con("COORDINADOR"));
+        PageResponse<CheckinResumen> answer = service.personas(EVENT, null, null, page, 20, with("COORDINADOR"));
 
-        assertTrue(respuesta.contenido().isEmpty());
-        assertEquals(pagina, respuesta.page());
-        assertEquals(0, respuesta.totalElementos());
-        assertEquals(0, respuesta.totalPaginas());
-        verify(nombres).datosDe(List.of());
-        verify(zonasBrigadista, never()).zonasDe(any(), any());
+        assertTrue(answer.contenido().isEmpty());
+        assertEquals(page, answer.page());
+        assertEquals(0, answer.totalElementos());
+        assertEquals(0, answer.totalPaginas());
+        verify(names).datosDe(List.of());
+        verify(brigadierZones, never()).zonasDe(any(), any());
     }
 
-    // ---------------------------------------------------------------- asistencia
-
-    private static final Instant PRIMER_REPORTE = Instant.parse("2026-11-20T15:02:00Z");
-    private static final Instant SEGUNDO_REPORTE = Instant.parse("2026-11-20T15:04:12Z");
-
     /**
-     * Crea el check-in vigente Requiero asistencia de un usuario, como lo devuelve la base de datos
+     * Creates the current NEEDS_ASSISTANCE check-in of a user, as the database returns it
      *
-     * @param usuario usuario que reporta
-     * @param tipo tipo de la ubicación reportada
-     * @param ubicacion id de MS02 de la ubicación
-     * @param registrado fecha y hora del check-in
-     * @return el check-in con su fecha de registro
+     * @param user user that reports
+     * @param type type of the reported location
+     * @param location MS02 id of the location
+     * @param registeredAt date of the check-in
+     * @return the check-in with its registration date
      */
-    private Checkin checkinAsistencia(UUID usuario, TipoUbicacion tipo, UUID ubicacion, Instant registrado) {
-        Checkin checkin = new Checkin(EVENTO, usuario, EstadoCheckin.NEEDS_ASSISTANCE, null, tipo, ubicacion);
-        ReflectionTestUtils.setField(checkin, "registradoEn", registrado);
+    private Checkin assistanceCheckin(UUID user, TipoUbicacion type, UUID location, Instant registeredAt) {
+        Checkin checkin = new Checkin(EVENT, user, EstadoCheckin.NEEDS_ASSISTANCE, null, type, location);
+        ReflectionTestUtils.setField(checkin, "registradoEn", registeredAt);
         return checkin;
     }
 
     /**
-     * Crea la solicitud de asistencia de un usuario con su estado de envío
+     * Creates the assistance request of a user with its sending state
      *
-     * @param usuario usuario de la solicitud
-     * @param solicitudMs05 id que devolvió MS05, null si no llegó
-     * @param estadoEnvio estado de envío
-     * @return la solicitud
+     * @param user user of the request
+     * @param ms05Id id that MS05 returned, null if it did not arrive
+     * @param sendingState sending state
+     * @return the request
      */
-    private SolicitudAsistencia solicitud(UUID usuario, String solicitudMs05, EstadoEnvio estadoEnvio) {
-        SolicitudAsistencia solicitud = new SolicitudAsistencia(UUID.randomUUID(), EVENTO, usuario,
-                TipoUbicacion.EDIFICIO, EDIFICIO, PRIMER_REPORTE);
-        solicitud.setSolicitudMs05Id(solicitudMs05);
-        solicitud.setEstadoEnvio(estadoEnvio);
-        return solicitud;
+    private SolicitudAsistencia request(UUID user, String ms05Id, EstadoEnvio sendingState) {
+        SolicitudAsistencia request = new SolicitudAsistencia(UUID.randomUUID(), EVENT, user,
+                TipoUbicacion.EDIFICIO, BUILDING, FIRST_REPORT);
+        request.setSolicitudMs05Id(ms05Id);
+        request.setEstadoEnvio(sendingState);
+        return request;
     }
 
     /**
-     * Cada persona sale con su nombre, la ubicación y la fecha de su check-in vigente y su solicitud en MS05, en el
-     * orden que entrega la consulta (del reporte más antiguo al más reciente)
+     * Each person has the name, the location and the date of the current check-in and the request in MS05, in the
+     * order of the query (from the oldest report to the most recent)
      */
     @Test
-    void asistenciaListaNombreUbicacionFechaYSolicitud() {
-        when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(checkins.buscarVigentesConAsistencia(EVENTO, false, NADA, NADA, NADA, PageRequest.of(0, 20)))
+    void assistanceListsNameLocationDateAndRequest() {
+        when(events.existsById(EVENT)).thenReturn(true);
+        when(checkins.buscarVigentesConAsistencia(EVENT, false, NONE, NONE, NONE, PageRequest.of(0, 20)))
                 .thenReturn(new PageImpl<>(List.of(
-                        checkinAsistencia(ANA, TipoUbicacion.EDIFICIO, EDIFICIO, PRIMER_REPORTE),
-                        checkinAsistencia(LUIS, TipoUbicacion.ESPACIO, ESPACIO, SEGUNDO_REPORTE)),
+                        assistanceCheckin(ANA, TipoUbicacion.EDIFICIO, BUILDING, FIRST_REPORT),
+                        assistanceCheckin(LUIS, TipoUbicacion.ESPACIO, SPACE, SECOND_REPORT)),
                         PageRequest.of(0, 20), 2));
-        when(nombres.datosDe(List.of(ANA, LUIS)))
-                .thenReturn(Map.of(ANA, datos("Ana Pérez"), LUIS, datos("Luis Gómez")));
-        when(solicitudes.findByEventoIdAndUsuarioIdIn(EVENTO, List.of(ANA, LUIS))).thenReturn(List.of(
-                solicitud(LUIS, null, EstadoEnvio.PENDIENTE_ENVIO), solicitud(ANA, "SOL-2026-0042", EstadoEnvio.ENVIADA)));
+        when(names.datosDe(List.of(ANA, LUIS)))
+                .thenReturn(Map.of(ANA, data("Ana Pérez"), LUIS, data("Luis Gómez")));
+        when(requests.findByEventoIdAndUsuarioIdIn(EVENT, List.of(ANA, LUIS))).thenReturn(List.of(
+                request(LUIS, null, EstadoEnvio.PENDIENTE_ENVIO),
+                request(ANA, "SOL-2026-0042", EstadoEnvio.ENVIADA)));
 
-        PageResponse<PersonaAsistencia> respuesta = service.asistencia(EVENTO, 0, 20, con("COORDINADOR"));
+        PageResponse<PersonaAsistencia> answer = service.asistencia(EVENT, 0, 20, with("COORDINADOR"));
 
-        assertEquals(2, respuesta.totalElementos());
-        assertEquals(List.of(new PersonaAsistencia(ANA, "Ana Pérez", correo("Ana Pérez"),
-                new Ubicacion(TipoUbicacion.EDIFICIO, EDIFICIO),
-                PRIMER_REPORTE, new SolicitudAsistenciaResumen("SOL-2026-0042", EstadoEnvio.ENVIADA)),
-                new PersonaAsistencia(LUIS, "Luis Gómez", correo("Luis Gómez"),
-                        new Ubicacion(TipoUbicacion.ESPACIO, ESPACIO),
-                        SEGUNDO_REPORTE, new SolicitudAsistenciaResumen(null, EstadoEnvio.PENDIENTE_ENVIO))),
-                respuesta.contenido());
-        verifyNoInteractions(zonasBrigadista);
+        assertEquals(2, answer.totalElementos());
+        assertEquals(List.of(new PersonaAsistencia(ANA, "Ana Pérez", email("Ana Pérez"),
+                new Ubicacion(TipoUbicacion.EDIFICIO, BUILDING),
+                FIRST_REPORT, new SolicitudAsistenciaResumen("SOL-2026-0042", EstadoEnvio.ENVIADA)),
+                new PersonaAsistencia(LUIS, "Luis Gómez", email("Luis Gómez"),
+                        new Ubicacion(TipoUbicacion.ESPACIO, SPACE),
+                        SECOND_REPORT, new SolicitudAsistenciaResumen(null, EstadoEnvio.PENDIENTE_ENVIO))),
+                answer.contenido());
+        verifyNoInteractions(brigadierZones);
     }
 
     /**
-     * Una solicitud que no llegó a MS05 se muestra tal cual, para que el coordinador la registre a mano (A3)
+     * A request that did not reach MS05 is shown as it is, so the coordinator can register it by hand (A3)
      *
-     * @param estadoEnvio estado de envío de la solicitud
+     * @param sendingState sending state of the request
      */
     @ParameterizedTest
     @EnumSource(EstadoEnvio.class)
-    void asistenciaMuestraElEstadoDeEnvioDeLaSolicitud(EstadoEnvio estadoEnvio) {
-        String solicitudMs05 = null;
-        if (estadoEnvio == EstadoEnvio.ENVIADA) {
-            solicitudMs05 = "SOL-2026-0042";
+    void assistanceShowsTheSendingStateOfTheRequest(EstadoEnvio sendingState) {
+        String ms05Id = null;
+        if (sendingState == EstadoEnvio.ENVIADA) {
+            ms05Id = "SOL-2026-0042";
         }
-        when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(checkins.buscarVigentesConAsistencia(EVENTO, false, NADA, NADA, NADA, PageRequest.of(0, 20)))
+        when(events.existsById(EVENT)).thenReturn(true);
+        when(checkins.buscarVigentesConAsistencia(EVENT, false, NONE, NONE, NONE, PageRequest.of(0, 20)))
                 .thenReturn(new PageImpl<>(
-                        List.of(checkinAsistencia(ANA, TipoUbicacion.PUNTO_ENCUENTRO, PUNTO_A, PRIMER_REPORTE)),
+                        List.of(assistanceCheckin(ANA, TipoUbicacion.PUNTO_ENCUENTRO, POINT_A, FIRST_REPORT)),
                         PageRequest.of(0, 20), 1));
-        when(solicitudes.findByEventoIdAndUsuarioIdIn(EVENTO, List.of(ANA)))
-                .thenReturn(List.of(solicitud(ANA, solicitudMs05, estadoEnvio)));
+        when(requests.findByEventoIdAndUsuarioIdIn(EVENT, List.of(ANA)))
+                .thenReturn(List.of(request(ANA, ms05Id, sendingState)));
 
-        PageResponse<PersonaAsistencia> respuesta = service.asistencia(EVENTO, 0, 20, con("COORDINADOR"));
+        PageResponse<PersonaAsistencia> answer = service.asistencia(EVENT, 0, 20, with("COORDINADOR"));
 
-        assertEquals(new SolicitudAsistenciaResumen(solicitudMs05, estadoEnvio),
-                respuesta.contenido().get(0).solicitudAsistencia());
-        assertEquals(new Ubicacion(TipoUbicacion.PUNTO_ENCUENTRO, PUNTO_A), respuesta.contenido().get(0).ubicacion());
+        assertEquals(new SolicitudAsistenciaResumen(ms05Id, sendingState),
+                answer.contenido().get(0).solicitudAsistencia());
+        assertEquals(new Ubicacion(TipoUbicacion.PUNTO_ENCUENTRO, POINT_A), answer.contenido().get(0).ubicacion());
     }
 
     /**
-     * Si MS01 no responde, la lista sale con el nombre nulo y el resto de los datos
+     * If MS01 does not answer, the list has a null name and the rest of the data
      */
     @Test
-    void asistenciaSinNombresDeMs01SaleConNombreNulo() {
-        when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(checkins.buscarVigentesConAsistencia(EVENTO, false, NADA, NADA, NADA, PageRequest.of(0, 20)))
+    void assistanceWithoutNamesOfMs01HasNullName() {
+        when(events.existsById(EVENT)).thenReturn(true);
+        when(checkins.buscarVigentesConAsistencia(EVENT, false, NONE, NONE, NONE, PageRequest.of(0, 20)))
                 .thenReturn(new PageImpl<>(
-                        List.of(checkinAsistencia(ANA, TipoUbicacion.EDIFICIO, EDIFICIO, PRIMER_REPORTE)),
+                        List.of(assistanceCheckin(ANA, TipoUbicacion.EDIFICIO, BUILDING, FIRST_REPORT)),
                         PageRequest.of(0, 20), 1));
-        when(nombres.datosDe(List.of(ANA))).thenReturn(Map.of());
-        when(solicitudes.findByEventoIdAndUsuarioIdIn(EVENTO, List.of(ANA)))
-                .thenReturn(List.of(solicitud(ANA, "SOL-2026-0042", EstadoEnvio.ENVIADA)));
+        when(names.datosDe(List.of(ANA))).thenReturn(Map.of());
+        when(requests.findByEventoIdAndUsuarioIdIn(EVENT, List.of(ANA)))
+                .thenReturn(List.of(request(ANA, "SOL-2026-0042", EstadoEnvio.ENVIADA)));
 
-        PageResponse<PersonaAsistencia> respuesta = service.asistencia(EVENTO, 0, 20, con("COORDINADOR"));
+        PageResponse<PersonaAsistencia> answer = service.asistencia(EVENT, 0, 20, with("COORDINADOR"));
 
-        assertNull(respuesta.contenido().get(0).nombre());
-        assertEquals(ANA, respuesta.contenido().get(0).usuarioId());
-        assertEquals("SOL-2026-0042", respuesta.contenido().get(0).solicitudAsistencia().id());
+        assertNull(answer.contenido().get(0).nombre());
+        assertEquals(ANA, answer.contenido().get(0).usuarioId());
+        assertEquals("SOL-2026-0042", answer.contenido().get(0).solicitudAsistencia().id());
     }
 
     /**
-     * Si por algún motivo la persona no tiene solicitud, igual aparece en la lista, con la solicitud nula
+     * A person without request still appears in the list, with a null request
      */
     @Test
-    void asistenciaSinSolicitudMuestraLaPersonaConLaSolicitudNula() {
-        when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(checkins.buscarVigentesConAsistencia(EVENTO, false, NADA, NADA, NADA, PageRequest.of(0, 20)))
+    void assistanceWithoutRequestShowsThePersonWithANullRequest() {
+        when(events.existsById(EVENT)).thenReturn(true);
+        when(checkins.buscarVigentesConAsistencia(EVENT, false, NONE, NONE, NONE, PageRequest.of(0, 20)))
                 .thenReturn(new PageImpl<>(
-                        List.of(checkinAsistencia(ANA, TipoUbicacion.EDIFICIO, EDIFICIO, PRIMER_REPORTE)),
+                        List.of(assistanceCheckin(ANA, TipoUbicacion.EDIFICIO, BUILDING, FIRST_REPORT)),
                         PageRequest.of(0, 20), 1));
-        when(solicitudes.findByEventoIdAndUsuarioIdIn(EVENTO, List.of(ANA))).thenReturn(List.of());
+        when(requests.findByEventoIdAndUsuarioIdIn(EVENT, List.of(ANA))).thenReturn(List.of());
 
-        PageResponse<PersonaAsistencia> respuesta = service.asistencia(EVENTO, 0, 20, con("COORDINADOR"));
+        PageResponse<PersonaAsistencia> answer = service.asistencia(EVENT, 0, 20, with("COORDINADOR"));
 
-        assertEquals(1, respuesta.totalElementos());
-        assertNull(respuesta.contenido().get(0).solicitudAsistencia());
+        assertEquals(1, answer.totalElementos());
+        assertNull(answer.contenido().get(0).solicitudAsistencia());
     }
 
     /**
-     * A1: si nadie requiere asistencia responde 200 con la lista vacía y no consulta solicitudes ni nombres de más
+     * A1: if nobody needs assistance it answers the empty list and does not query requests
      *
-     * @param pagina número de página pedido
+     * @param page requested page number
      */
     @ParameterizedTest
     @ValueSource(ints = { 0, 7 })
-    void siNadieRequiereAsistenciaLaListaEsVacia(int pagina) {
-        when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(checkins.buscarVigentesConAsistencia(EVENTO, false, NADA, NADA, NADA, PageRequest.of(pagina, 20)))
-                .thenReturn(Page.empty(PageRequest.of(pagina, 20)));
+    void ifNobodyNeedsAssistanceTheListIsEmpty(int page) {
+        when(events.existsById(EVENT)).thenReturn(true);
+        when(checkins.buscarVigentesConAsistencia(EVENT, false, NONE, NONE, NONE, PageRequest.of(page, 20)))
+                .thenReturn(Page.empty(PageRequest.of(page, 20)));
 
-        PageResponse<PersonaAsistencia> respuesta = service.asistencia(EVENTO, pagina, 20, con("COORDINADOR"));
+        PageResponse<PersonaAsistencia> answer = service.asistencia(EVENT, page, 20, with("COORDINADOR"));
 
-        assertTrue(respuesta.contenido().isEmpty());
-        assertEquals(pagina, respuesta.page());
-        assertEquals(0, respuesta.totalElementos());
-        assertEquals(0, respuesta.totalPaginas());
-        verify(solicitudes, never()).findByEventoIdAndUsuarioIdIn(any(), any());
-        verify(zonasBrigadista, never()).zonasDe(any(), any());
+        assertTrue(answer.contenido().isEmpty());
+        assertEquals(page, answer.page());
+        assertEquals(0, answer.totalElementos());
+        assertEquals(0, answer.totalPaginas());
+        verify(requests, never()).findByEventoIdAndUsuarioIdIn(any(), any());
+        verify(brigadierZones, never()).zonasDe(any(), any());
     }
 
     /**
-     * La lista se pagina: pide a la base solo la página, y el total y las páginas salen del total de personas
+     * The list is paginated: only the page is requested to the database, and the total and the pages come from the
+     * total of people
      */
     @Test
-    void asistenciaSePagina() {
-        when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(checkins.buscarVigentesConAsistencia(EVENTO, false, NADA, NADA, NADA, PageRequest.of(1, 2)))
+    void assistanceIsPaginated() {
+        when(events.existsById(EVENT)).thenReturn(true);
+        when(checkins.buscarVigentesConAsistencia(EVENT, false, NONE, NONE, NONE, PageRequest.of(1, 2)))
                 .thenReturn(new PageImpl<>(
-                        List.of(checkinAsistencia(LUIS, TipoUbicacion.ESPACIO, ESPACIO, SEGUNDO_REPORTE)),
+                        List.of(assistanceCheckin(LUIS, TipoUbicacion.ESPACIO, SPACE, SECOND_REPORT)),
                         PageRequest.of(1, 2), 3));
-        when(solicitudes.findByEventoIdAndUsuarioIdIn(EVENTO, List.of(LUIS)))
-                .thenReturn(List.of(solicitud(LUIS, null, EstadoEnvio.RECHAZADA)));
+        when(requests.findByEventoIdAndUsuarioIdIn(EVENT, List.of(LUIS)))
+                .thenReturn(List.of(request(LUIS, null, EstadoEnvio.RECHAZADA)));
 
-        PageResponse<PersonaAsistencia> respuesta = service.asistencia(EVENTO, 1, 2, con("COORDINADOR"));
+        PageResponse<PersonaAsistencia> answer = service.asistencia(EVENT, 1, 2, with("COORDINADOR"));
 
-        assertEquals(1, respuesta.page());
-        assertEquals(2, respuesta.size());
-        assertEquals(3, respuesta.totalElementos());
-        assertEquals(2, respuesta.totalPaginas());
-        assertEquals(1, respuesta.contenido().size());
+        assertEquals(1, answer.page());
+        assertEquals(2, answer.size());
+        assertEquals(3, answer.totalElementos());
+        assertEquals(2, answer.totalPaginas());
+        assertEquals(1, answer.contenido().size());
     }
 
     /**
-     * A2: el BRIGADISTA pide sus zonas a MS05 y recibe solo las personas de ellas
+     * A2: the brigadier asks MS05 for the zones and gets only the people in them
      */
     @Test
-    void asistenciaDelBrigadistaListaSoloSusZonas() {
-        RequesterIdentity brigadista = con("BRIGADISTA");
-        when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(zonasBrigadista.zonasDe(brigadista, EVENTO))
-                .thenReturn(new ZonasAsignadas(Set.of(EDIFICIO), Set.of(ESPACIO), Set.of(PUNTO_A)));
-        when(checkins.buscarVigentesConAsistencia(EVENTO, true, Set.of(PUNTO_A), Set.of(EDIFICIO), Set.of(ESPACIO),
+    void assistanceOfTheBrigadierListsOnlyTheirZones() {
+        RequesterIdentity brigadier = with("BRIGADISTA");
+        when(events.existsById(EVENT)).thenReturn(true);
+        when(brigadierZones.zonasDe(brigadier, EVENT))
+                .thenReturn(new ZonasAsignadas(Set.of(BUILDING), Set.of(SPACE), Set.of(POINT_A)));
+        when(checkins.buscarVigentesConAsistencia(EVENT, true, Set.of(POINT_A), Set.of(BUILDING), Set.of(SPACE),
                 PageRequest.of(0, 20)))
                 .thenReturn(new PageImpl<>(
-                        List.of(checkinAsistencia(ANA, TipoUbicacion.EDIFICIO, EDIFICIO, PRIMER_REPORTE)),
+                        List.of(assistanceCheckin(ANA, TipoUbicacion.EDIFICIO, BUILDING, FIRST_REPORT)),
                         PageRequest.of(0, 20), 1));
-        when(solicitudes.findByEventoIdAndUsuarioIdIn(EVENTO, List.of(ANA)))
-                .thenReturn(List.of(solicitud(ANA, "SOL-2026-0042", EstadoEnvio.ENVIADA)));
+        when(requests.findByEventoIdAndUsuarioIdIn(EVENT, List.of(ANA)))
+                .thenReturn(List.of(request(ANA, "SOL-2026-0042", EstadoEnvio.ENVIADA)));
 
-        PageResponse<PersonaAsistencia> respuesta = service.asistencia(EVENTO, 0, 20, brigadista);
+        PageResponse<PersonaAsistencia> answer = service.asistencia(EVENT, 0, 20, brigadier);
 
-        assertEquals(1, respuesta.totalElementos());
-        assertEquals(ANA, respuesta.contenido().get(0).usuarioId());
+        assertEquals(1, answer.totalElementos());
+        assertEquals(ANA, answer.contenido().get(0).usuarioId());
     }
 
     /**
-     * Quien tiene el rol BRIGADISTA y otro rol con acceso ve todas las personas del evento
+     * Who has BRIGADISTA and another role with access sees every person of the event
      *
-     * @param otro rol que ve todo el evento
+     * @param other role that sees the whole event
      */
     @ParameterizedTest
     @ValueSource(strings = { "COORDINADOR", "ORGANIZADOR", "AUDITOR" })
-    void asistenciaDeBrigadistaConOtroRolConAccesoNoSeRestringe(String otro) {
-        when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(checkins.buscarVigentesConAsistencia(EVENTO, false, NADA, NADA, NADA, PageRequest.of(0, 20)))
+    void assistanceOfABrigadierWithAnotherRoleWithAccessIsNotRestricted(String other) {
+        when(events.existsById(EVENT)).thenReturn(true);
+        when(checkins.buscarVigentesConAsistencia(EVENT, false, NONE, NONE, NONE, PageRequest.of(0, 20)))
                 .thenReturn(Page.empty(PageRequest.of(0, 20)));
 
-        service.asistencia(EVENTO, 0, 20, con("BRIGADISTA", otro));
+        service.asistencia(EVENT, 0, 20, with("BRIGADISTA", other));
 
-        verify(zonasBrigadista, never()).zonasDe(any(), any());
+        verify(brigadierZones, never()).zonasDe(any(), any());
     }
 
     /**
-     * Si MS05 no entrega las zonas, el BRIGADISTA recibe 503 y no se consulta nada más
+     * If MS05 does not deliver the zones, the brigadier gets 503 and nothing else is queried
      */
     @Test
-    void asistenciaDelBrigadistaSinZonasDeMs05Responde503() {
-        RequesterIdentity brigadista = con("BRIGADISTA");
-        when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(zonasBrigadista.zonasDe(brigadista, EVENTO)).thenThrow(ApiException.dependenciaNoDisponible());
+    void assistanceOfTheBrigadierWithoutZonesOfMs05Answers503() {
+        RequesterIdentity brigadier = with("BRIGADISTA");
+        when(events.existsById(EVENT)).thenReturn(true);
+        when(brigadierZones.zonasDe(brigadier, EVENT)).thenThrow(ApiException.dependenciaNoDisponible());
 
-        ApiException error = assertThrows(ApiException.class, () -> service.asistencia(EVENTO, 0, 20, brigadista));
+        ApiException error = assertThrows(ApiException.class, () -> service.asistencia(EVENT, 0, 20, brigadier));
 
         assertEquals(ErrorCode.DEPENDENCY_UNAVAILABLE, error.getCode());
-        verifyNoInteractions(checkins, solicitudes, nombres);
+        verifyNoInteractions(checkins, requests, names);
     }
 
     /**
-     * A5: con un evento inexistente responde 404 sin consultar nada más, tampoco las zonas del BRIGADISTA
+     * A5: with an unknown event it answers 404 without querying anything else, the zones of the brigadier included
      *
-     * @param rol rol del solicitante
+     * @param role role of the requester
      */
     @ParameterizedTest
     @ValueSource(strings = { "BRIGADISTA", "COORDINADOR", "ORGANIZADOR", "AUDITOR" })
-    void asistenciaDeUnEventoInexistenteResponde404(String rol) {
-        when(eventos.existsById(EVENTO)).thenReturn(false);
-        RequesterIdentity requester = con(rol);
+    void assistanceOfAnUnknownEventAnswers404(String role) {
+        when(events.existsById(EVENT)).thenReturn(false);
+        RequesterIdentity requester = with(role);
 
-        ApiException error = assertThrows(ApiException.class, () -> service.asistencia(EVENTO, 0, 20, requester));
+        ApiException error = assertThrows(ApiException.class, () -> service.asistencia(EVENT, 0, 20, requester));
 
         assertEquals(ErrorCode.NOT_FOUND, error.getCode());
         assertEquals(DashboardService.EVENTO_NO_ENCONTRADO, error.getMessage());
-        verifyNoInteractions(checkins, solicitudes, nombres, zonasBrigadista);
+        verifyNoInteractions(checkins, requests, names, brigadierZones);
     }
 
     /**
-     * La lista funciona con el evento en cualquier estado (RN-MS04-22): el service no mira el estado del evento
+     * The list works with the event in any state (RN-MS04-22): the service does not look at the state of the event
      *
-     * @param estado estado del evento
+     * @param state state of the event
      */
     @ParameterizedTest
     @EnumSource(EstadoEvento.class)
-    void asistenciaFuncionaConElEventoEnCualquierEstado(EstadoEvento estado) {
-        when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(checkins.buscarVigentesConAsistencia(EVENTO, false, NADA, NADA, NADA, PageRequest.of(0, 20)))
+    void assistanceWorksWithTheEventInAnyState(EstadoEvento state) {
+        when(events.existsById(EVENT)).thenReturn(true);
+        when(checkins.buscarVigentesConAsistencia(EVENT, false, NONE, NONE, NONE, PageRequest.of(0, 20)))
                 .thenReturn(new PageImpl<>(
-                        List.of(checkinAsistencia(ANA, TipoUbicacion.EDIFICIO, EDIFICIO, PRIMER_REPORTE)),
+                        List.of(assistanceCheckin(ANA, TipoUbicacion.EDIFICIO, BUILDING, FIRST_REPORT)),
                         PageRequest.of(0, 20), 1));
-        when(solicitudes.findByEventoIdAndUsuarioIdIn(EVENTO, List.of(ANA)))
-                .thenReturn(List.of(solicitud(ANA, "SOL-2026-0042", EstadoEnvio.ENVIADA)));
+        when(requests.findByEventoIdAndUsuarioIdIn(EVENT, List.of(ANA)))
+                .thenReturn(List.of(request(ANA, "SOL-2026-0042", EstadoEnvio.ENVIADA)));
 
-        PageResponse<PersonaAsistencia> respuesta = service.asistencia(EVENTO, 0, 20, con("COORDINADOR"));
+        PageResponse<PersonaAsistencia> answer = service.asistencia(EVENT, 0, 20, with("COORDINADOR"));
 
-        assertEquals(1, respuesta.totalElementos());
+        assertEquals(1, answer.totalElementos());
     }
 
-    // ---------------------------------------------------------------- pendientes
-
-    private static final List<String> ROLES = List.of("ESTUDIANTE", "PROFESOR");
-    private static final Instant INICIO = Instant.parse("2026-11-20T14:00:00Z");
-
     /**
-     * Usuario de prueba cuyo id crece con el número, para comprobar el orden de la lista
+     * Test user whose id grows with the number, to check the order of the list
      *
-     * @param numero número del usuario, de 1 a 9
-     * @return el id del usuario
+     * @param number number of the user, from 1 to 9
+     * @return the id of the user
      */
-    private static UUID usuario(int numero) {
-        return UUID.fromString("00000000-0000-4000-8000-00000000000" + numero);
+    private static UUID user(int number) {
+        return UUID.fromString("00000000-0000-4000-8000-00000000000" + number);
     }
 
     /**
-     * Crea un evento EN_EJECUCION con los roles convocados y el inicio fijos
+     * Creates an event in execution with fixed convened roles and start
      *
-     * @return el evento
+     * @return the event
      */
-    private Evento eventoConvocado() {
-        Evento evento = evento(EstadoEvento.EN_EJECUCION);
-        evento.setRolesConvocados(ROLES);
-        evento.setFechaInicio(INICIO);
-        return evento;
+    private Evento convenedEvent() {
+        Evento event = event(EstadoEvento.EN_EJECUCION);
+        event.setRolesConvocados(ROLES);
+        event.setFechaInicio(START);
+        return event;
     }
 
     /**
-     * Pendientes son la población objetivo menos quienes tienen estado vigente, con el nombre de cada uno y el
-     * total en total_elementos
-     */
-    @Test
-    void pendientesSonLaPoblacionMenosLosQueReportaron() {
-        RequesterIdentity coordinador = con("COORDINADOR");
-        when(eventos.findById(EVENTO)).thenReturn(Optional.of(eventoConvocado()));
-        when(poblacionObjetivo.usuariosActivosPorRoles(ROLES, INICIO, coordinador))
-                .thenReturn(Optional.of(Set.of(usuario(1), usuario(2), usuario(3), usuario(4))));
-        when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of(usuario(2), usuario(4)));
-        when(nombres.datosDe(List.of(usuario(1), usuario(3))))
-                .thenReturn(Map.of(usuario(1), datos("Ana Pérez"), usuario(3), datos("Luis Gómez")));
-
-        PageResponse<Pendiente> respuesta = service.pendientes(EVENTO, 0, 20, coordinador);
-
-        assertEquals(List.of(new Pendiente(usuario(1), "Ana Pérez", correo("Ana Pérez")),
-                new Pendiente(usuario(3), "Luis Gómez", correo("Luis Gómez"))),
-                respuesta.contenido());
-        assertEquals(2, respuesta.totalElementos());
-        assertEquals(1, respuesta.totalPaginas());
-        assertEquals(0, respuesta.page());
-        assertEquals(20, respuesta.size());
-        verifyNoInteractions(zonasBrigadista);
-    }
-
-    /**
-     * La lista sale ordenada por id de usuario sin importar el orden en que MS01 entregó la población
+     * The pending people are the target population minus who has a current status, with the name of each one and
+     * the total in total_elementos
      */
     @Test
-    void pendientesSalenOrdenadosPorIdDeUsuario() {
-        RequesterIdentity auditor = con("AUDITOR");
-        when(eventos.findById(EVENTO)).thenReturn(Optional.of(eventoConvocado()));
-        when(poblacionObjetivo.usuariosActivosPorRoles(ROLES, INICIO, auditor))
-                .thenReturn(Optional.of(Set.of(usuario(9), usuario(3), usuario(7), usuario(1))));
-        when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of());
-        when(nombres.datosDe(List.of(usuario(1), usuario(3), usuario(7), usuario(9)))).thenReturn(Map.of());
+    void pendingAreThePopulationMinusWhoReported() {
+        RequesterIdentity coordinator = with("COORDINADOR");
+        when(events.findById(EVENT)).thenReturn(Optional.of(convenedEvent()));
+        when(targetPopulation.usuariosActivosPorRoles(ROLES, START, coordinator))
+                .thenReturn(Optional.of(Set.of(user(1), user(2), user(3), user(4))));
+        when(checkins.buscarUsuariosConEstadoVigente(EVENT)).thenReturn(List.of(user(2), user(4)));
+        when(names.datosDe(List.of(user(1), user(3))))
+                .thenReturn(Map.of(user(1), data("Ana Pérez"), user(3), data("Luis Gómez")));
 
-        PageResponse<Pendiente> respuesta = service.pendientes(EVENTO, 0, 20, auditor);
+        PageResponse<Pendiente> answer = service.pendientes(EVENT, 0, 20, coordinator);
 
-        assertEquals(List.of(usuario(1), usuario(3), usuario(7), usuario(9)),
-                respuesta.contenido().stream().map(Pendiente::usuarioId).toList());
+        assertEquals(List.of(new Pendiente(user(1), "Ana Pérez", email("Ana Pérez")),
+                new Pendiente(user(3), "Luis Gómez", email("Luis Gómez"))),
+                answer.contenido());
+        assertEquals(2, answer.totalElementos());
+        assertEquals(1, answer.totalPaginas());
+        assertEquals(0, answer.page());
+        assertEquals(20, answer.size());
+        verifyNoInteractions(brigadierZones);
     }
 
     /**
-     * Sin check-ins en el evento toda la población objetivo es pendiente (A1)
+     * The list is sorted by user id whatever the order in which MS01 delivered the population
      */
     @Test
-    void sinCheckinsTodaLaPoblacionEsPendiente() {
-        RequesterIdentity organizador = con("ORGANIZADOR");
-        when(eventos.findById(EVENTO)).thenReturn(Optional.of(eventoConvocado()));
-        when(poblacionObjetivo.usuariosActivosPorRoles(ROLES, INICIO, organizador))
-                .thenReturn(Optional.of(Set.of(usuario(1), usuario(2))));
-        when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of());
-        when(nombres.datosDe(List.of(usuario(1), usuario(2)))).thenReturn(Map.of());
+    void pendingAreSortedByUserId() {
+        RequesterIdentity auditor = with("AUDITOR");
+        when(events.findById(EVENT)).thenReturn(Optional.of(convenedEvent()));
+        when(targetPopulation.usuariosActivosPorRoles(ROLES, START, auditor))
+                .thenReturn(Optional.of(Set.of(user(9), user(3), user(7), user(1))));
+        when(checkins.buscarUsuariosConEstadoVigente(EVENT)).thenReturn(List.of());
+        when(names.datosDe(List.of(user(1), user(3), user(7), user(9)))).thenReturn(Map.of());
 
-        PageResponse<Pendiente> respuesta = service.pendientes(EVENTO, 0, 20, organizador);
+        PageResponse<Pendiente> answer = service.pendientes(EVENT, 0, 20, auditor);
 
-        assertEquals(2, respuesta.totalElementos());
+        assertEquals(List.of(user(1), user(3), user(7), user(9)), answer.contenido().stream()
+                .map(Pendiente::usuarioId)
+                .toList());
     }
 
     /**
-     * Si todos reportaron responde total 0 y lista vacía (A2)
+     * Without check-ins in the event the whole target population is pending (A1)
      */
     @Test
-    void siTodosReportaronResponde200ConTotalCeroYListaVacia() {
-        RequesterIdentity coordinador = con("COORDINADOR");
-        when(eventos.findById(EVENTO)).thenReturn(Optional.of(eventoConvocado()));
-        when(poblacionObjetivo.usuariosActivosPorRoles(ROLES, INICIO, coordinador))
-                .thenReturn(Optional.of(Set.of(usuario(1), usuario(2))));
-        when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of(usuario(1), usuario(2)));
-        when(nombres.datosDe(List.of())).thenReturn(Map.of());
+    void withoutCheckinsTheWholePopulationIsPending() {
+        RequesterIdentity organizer = with("ORGANIZADOR");
+        when(events.findById(EVENT)).thenReturn(Optional.of(convenedEvent()));
+        when(targetPopulation.usuariosActivosPorRoles(ROLES, START, organizer))
+                .thenReturn(Optional.of(Set.of(user(1), user(2))));
+        when(checkins.buscarUsuariosConEstadoVigente(EVENT)).thenReturn(List.of());
+        when(names.datosDe(List.of(user(1), user(2)))).thenReturn(Map.of());
 
-        PageResponse<Pendiente> respuesta = service.pendientes(EVENTO, 0, 20, coordinador);
+        PageResponse<Pendiente> answer = service.pendientes(EVENT, 0, 20, organizer);
 
-        assertTrue(respuesta.contenido().isEmpty());
-        assertEquals(0, respuesta.totalElementos());
-        assertEquals(0, respuesta.totalPaginas());
+        assertEquals(2, answer.totalElementos());
     }
 
     /**
-     * Quien reportó pero ya no está en la población objetivo (p. ej. cambió de rol) no altera la lista
+     * If everybody reported it answers total 0 and an empty list (A2)
      */
     @Test
-    void quienReportoSinEstarEnLaPoblacionNoAlteraLosPendientes() {
-        RequesterIdentity coordinador = con("COORDINADOR");
-        when(eventos.findById(EVENTO)).thenReturn(Optional.of(eventoConvocado()));
-        when(poblacionObjetivo.usuariosActivosPorRoles(ROLES, INICIO, coordinador))
-                .thenReturn(Optional.of(Set.of(usuario(1), usuario(2))));
-        when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of(usuario(2), usuario(8)));
-        when(nombres.datosDe(List.of(usuario(1)))).thenReturn(Map.of());
+    void ifEverybodyReportedTheListIsEmpty() {
+        RequesterIdentity coordinator = with("COORDINADOR");
+        when(events.findById(EVENT)).thenReturn(Optional.of(convenedEvent()));
+        when(targetPopulation.usuariosActivosPorRoles(ROLES, START, coordinator))
+                .thenReturn(Optional.of(Set.of(user(1), user(2))));
+        when(checkins.buscarUsuariosConEstadoVigente(EVENT)).thenReturn(List.of(user(1), user(2)));
+        when(names.datosDe(List.of())).thenReturn(Map.of());
 
-        PageResponse<Pendiente> respuesta = service.pendientes(EVENTO, 0, 20, coordinador);
+        PageResponse<Pendiente> answer = service.pendientes(EVENT, 0, 20, coordinator);
 
-        assertEquals(1, respuesta.totalElementos());
-        assertEquals(usuario(1), respuesta.contenido().get(0).usuarioId());
+        assertTrue(answer.contenido().isEmpty());
+        assertEquals(0, answer.totalElementos());
+        assertEquals(0, answer.totalPaginas());
     }
 
     /**
-     * Con roles convocados sin usuarios la lista es vacía
+     * Who reported but is no longer in the target population (for example after a change of role) does not change
+     * the list
      */
     @Test
-    void sinPoblacionObjetivoLaListaEsVacia() {
-        RequesterIdentity coordinador = con("COORDINADOR");
-        when(eventos.findById(EVENTO)).thenReturn(Optional.of(eventoConvocado()));
-        when(poblacionObjetivo.usuariosActivosPorRoles(ROLES, INICIO, coordinador)).thenReturn(Optional.of(Set.of()));
-        when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of());
-        when(nombres.datosDe(List.of())).thenReturn(Map.of());
+    void whoReportedOutsideThePopulationDoesNotChangeThePending() {
+        RequesterIdentity coordinator = with("COORDINADOR");
+        when(events.findById(EVENT)).thenReturn(Optional.of(convenedEvent()));
+        when(targetPopulation.usuariosActivosPorRoles(ROLES, START, coordinator))
+                .thenReturn(Optional.of(Set.of(user(1), user(2))));
+        when(checkins.buscarUsuariosConEstadoVigente(EVENT)).thenReturn(List.of(user(2), user(8)));
+        when(names.datosDe(List.of(user(1)))).thenReturn(Map.of());
 
-        PageResponse<Pendiente> respuesta = service.pendientes(EVENTO, 0, 20, coordinador);
+        PageResponse<Pendiente> answer = service.pendientes(EVENT, 0, 20, coordinator);
 
-        assertTrue(respuesta.contenido().isEmpty());
-        assertEquals(0, respuesta.totalElementos());
+        assertEquals(1, answer.totalElementos());
+        assertEquals(user(1), answer.contenido().get(0).usuarioId());
     }
 
     /**
-     * Pagina la lista: cada página trae su parte, el total es el de pendientes y los nombres se piden solo de la
-     * página
+     * With convened roles without users the list is empty
      */
     @Test
-    void pendientesSePaginan() {
-        RequesterIdentity coordinador = con("COORDINADOR");
-        when(eventos.findById(EVENTO)).thenReturn(Optional.of(eventoConvocado()));
-        when(poblacionObjetivo.usuariosActivosPorRoles(ROLES, INICIO, coordinador)).thenReturn(Optional.of(
-                Set.of(usuario(1), usuario(2), usuario(3), usuario(4), usuario(5))));
-        when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of());
-        when(nombres.datosDe(List.of(usuario(3), usuario(4)))).thenReturn(Map.of(usuario(3), datos("Tres")));
+    void withoutTargetPopulationTheListIsEmpty() {
+        RequesterIdentity coordinator = with("COORDINADOR");
+        when(events.findById(EVENT)).thenReturn(Optional.of(convenedEvent()));
+        when(targetPopulation.usuariosActivosPorRoles(ROLES, START, coordinator)).thenReturn(Optional.of(Set.of()));
+        when(checkins.buscarUsuariosConEstadoVigente(EVENT)).thenReturn(List.of());
+        when(names.datosDe(List.of())).thenReturn(Map.of());
 
-        PageResponse<Pendiente> respuesta = service.pendientes(EVENTO, 1, 2, coordinador);
+        PageResponse<Pendiente> answer = service.pendientes(EVENT, 0, 20, coordinator);
 
-        assertEquals(List.of(new Pendiente(usuario(3), "Tres", correo("Tres")), new Pendiente(usuario(4), null, null)),
-                respuesta.contenido());
-        assertEquals(5, respuesta.totalElementos());
-        assertEquals(3, respuesta.totalPaginas());
-        assertEquals(1, respuesta.page());
-        assertEquals(2, respuesta.size());
+        assertTrue(answer.contenido().isEmpty());
+        assertEquals(0, answer.totalElementos());
     }
 
     /**
-     * Una página más allá de la última devuelve la lista vacía con los totales, sin fallar ni desbordar
+     * The list is paginated: each page brings its part, the total is the one of the pending people and the names are
+     * requested only for the page
+     */
+    @Test
+    void pendingArePaginated() {
+        RequesterIdentity coordinator = with("COORDINADOR");
+        when(events.findById(EVENT)).thenReturn(Optional.of(convenedEvent()));
+        when(targetPopulation.usuariosActivosPorRoles(ROLES, START, coordinator)).thenReturn(Optional.of(
+                Set.of(user(1), user(2), user(3), user(4), user(5))));
+        when(checkins.buscarUsuariosConEstadoVigente(EVENT)).thenReturn(List.of());
+        when(names.datosDe(List.of(user(3), user(4)))).thenReturn(Map.of(user(3), data("Tres")));
+
+        PageResponse<Pendiente> answer = service.pendientes(EVENT, 1, 2, coordinator);
+
+        assertEquals(List.of(new Pendiente(user(3), "Tres", email("Tres")), new Pendiente(user(4), null, null)),
+                answer.contenido());
+        assertEquals(5, answer.totalElementos());
+        assertEquals(3, answer.totalPaginas());
+        assertEquals(1, answer.page());
+        assertEquals(2, answer.size());
+    }
+
+    /**
+     * A page beyond the last one returns the empty list with the totals, without failing nor overflowing
      *
-     * @param pagina número de página pedido
+     * @param page requested page number
      */
     @ParameterizedTest
     @ValueSource(ints = { 3, 100, Integer.MAX_VALUE })
-    void unaPaginaMasAllaDeLaUltimaDevuelveLaListaVaciaConLosTotales(int pagina) {
-        RequesterIdentity coordinador = con("COORDINADOR");
-        when(eventos.findById(EVENTO)).thenReturn(Optional.of(eventoConvocado()));
-        when(poblacionObjetivo.usuariosActivosPorRoles(ROLES, INICIO, coordinador)).thenReturn(Optional.of(
-                Set.of(usuario(1), usuario(2), usuario(3), usuario(4), usuario(5))));
-        when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of());
-        when(nombres.datosDe(List.of())).thenReturn(Map.of());
+    void aPageBeyondTheLastOneReturnsTheEmptyListWithTheTotals(int page) {
+        RequesterIdentity coordinator = with("COORDINADOR");
+        when(events.findById(EVENT)).thenReturn(Optional.of(convenedEvent()));
+        when(targetPopulation.usuariosActivosPorRoles(ROLES, START, coordinator)).thenReturn(Optional.of(
+                Set.of(user(1), user(2), user(3), user(4), user(5))));
+        when(checkins.buscarUsuariosConEstadoVigente(EVENT)).thenReturn(List.of());
+        when(names.datosDe(List.of())).thenReturn(Map.of());
 
-        PageResponse<Pendiente> respuesta = service.pendientes(EVENTO, pagina, 2, coordinador);
+        PageResponse<Pendiente> answer = service.pendientes(EVENT, page, 2, coordinator);
 
-        assertTrue(respuesta.contenido().isEmpty());
-        assertEquals(5, respuesta.totalElementos());
-        assertEquals(3, respuesta.totalPaginas());
+        assertTrue(answer.contenido().isEmpty());
+        assertEquals(5, answer.totalElementos());
+        assertEquals(3, answer.totalPaginas());
     }
 
     /**
-     * Si MS01 no entrega los nombres, la lista sale con el nombre nulo y sigue completa
+     * If MS01 does not deliver the names, the list has a null name and stays complete
      */
     @Test
-    void sinNombresDeMs01LosPendientesSalenConNombreNulo() {
-        RequesterIdentity coordinador = con("COORDINADOR");
-        when(eventos.findById(EVENTO)).thenReturn(Optional.of(eventoConvocado()));
-        when(poblacionObjetivo.usuariosActivosPorRoles(ROLES, INICIO, coordinador))
-                .thenReturn(Optional.of(Set.of(usuario(1))));
-        when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of());
-        when(nombres.datosDe(List.of(usuario(1)))).thenReturn(Map.of());
+    void withoutNamesOfMs01ThePendingHaveNullName() {
+        RequesterIdentity coordinator = with("COORDINADOR");
+        when(events.findById(EVENT)).thenReturn(Optional.of(convenedEvent()));
+        when(targetPopulation.usuariosActivosPorRoles(ROLES, START, coordinator))
+                .thenReturn(Optional.of(Set.of(user(1))));
+        when(checkins.buscarUsuariosConEstadoVigente(EVENT)).thenReturn(List.of());
+        when(names.datosDe(List.of(user(1)))).thenReturn(Map.of());
 
-        PageResponse<Pendiente> respuesta = service.pendientes(EVENTO, 0, 20, coordinador);
+        PageResponse<Pendiente> answer = service.pendientes(EVENT, 0, 20, coordinator);
 
-        assertNull(respuesta.contenido().get(0).nombre());
-        assertEquals(usuario(1), respuesta.contenido().get(0).usuarioId());
+        assertNull(answer.contenido().get(0).nombre());
+        assertEquals(user(1), answer.contenido().get(0).usuarioId());
     }
 
     /**
-     * Si MS01 no entrega la población objetivo responde 503 con el mensaje de F-03 y no consulta nada más
+     * If MS01 does not deliver the target population it answers 503 with the message of F-03 and queries nothing
+     * else
      */
     @Test
-    void sinPoblacionDeMs01Responde503ConElMensajeDeLaLista() {
-        RequesterIdentity coordinador = con("COORDINADOR");
-        when(eventos.findById(EVENTO)).thenReturn(Optional.of(eventoConvocado()));
-        when(poblacionObjetivo.usuariosActivosPorRoles(ROLES, INICIO, coordinador)).thenReturn(Optional.empty());
+    void withoutPopulationOfMs01Answers503WithTheMessageOfTheList() {
+        RequesterIdentity coordinator = with("COORDINADOR");
+        when(events.findById(EVENT)).thenReturn(Optional.of(convenedEvent()));
+        when(targetPopulation.usuariosActivosPorRoles(ROLES, START, coordinator)).thenReturn(Optional.empty());
 
-        ApiException error = assertThrows(ApiException.class, () -> service.pendientes(EVENTO, 0, 20, coordinador));
+        ApiException error = assertThrows(ApiException.class, () -> service.pendientes(EVENT, 0, 20, coordinator));
 
         assertEquals(ErrorCode.DEPENDENCY_UNAVAILABLE, error.getCode());
         assertEquals("La lista de pendientes no está disponible en este momento.", error.getMessage());
-        verifyNoInteractions(checkins, nombres, zonasBrigadista);
+        verifyNoInteractions(checkins, names, brigadierZones);
     }
 
     /**
-     * El BRIGADISTA recibe 200 con total 0 y lista vacía sin consultar a MS01, a MS05 ni los check-ins (A6)
+     * The brigadier gets an empty list with total 0 without querying MS01, MS05 nor the check-ins (A6)
      */
     @Test
-    void elBrigadistaRecibeUnaListaVaciaSinConsultarAMs01() {
-        when(eventos.findById(EVENTO)).thenReturn(Optional.of(eventoConvocado()));
+    void theBrigadierGetsAnEmptyListWithoutQueryingMs01() {
+        when(events.findById(EVENT)).thenReturn(Optional.of(convenedEvent()));
 
-        PageResponse<Pendiente> respuesta = service.pendientes(EVENTO, 0, 20, con("BRIGADISTA"));
+        PageResponse<Pendiente> answer = service.pendientes(EVENT, 0, 20, with("BRIGADISTA"));
 
-        assertTrue(respuesta.contenido().isEmpty());
-        assertEquals(0, respuesta.totalElementos());
-        assertEquals(0, respuesta.totalPaginas());
-        assertEquals(20, respuesta.size());
-        verifyNoInteractions(poblacionObjetivo, zonasBrigadista, checkins, nombres);
+        assertTrue(answer.contenido().isEmpty());
+        assertEquals(0, answer.totalElementos());
+        assertEquals(0, answer.totalPaginas());
+        assertEquals(20, answer.size());
+        verifyNoInteractions(targetPopulation, brigadierZones, checkins, names);
     }
 
     /**
-     * Quien además de BRIGADISTA tiene otro rol con permiso ve la lista completa
+     * Who has another role with the permission besides BRIGADISTA sees the whole list
      *
-     * @param otro rol que ve todo el evento
+     * @param other role that sees the whole event
      */
     @ParameterizedTest
     @ValueSource(strings = { "COORDINADOR", "ORGANIZADOR", "AUDITOR" })
-    void quienTambienTieneOtroRolConPermisoVeLosPendientes(String otro) {
-        RequesterIdentity solicitante = con("BRIGADISTA", otro);
-        when(eventos.findById(EVENTO)).thenReturn(Optional.of(eventoConvocado()));
-        when(poblacionObjetivo.usuariosActivosPorRoles(ROLES, INICIO, solicitante))
-                .thenReturn(Optional.of(Set.of(usuario(1))));
-        when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of());
-        when(nombres.datosDe(List.of(usuario(1)))).thenReturn(Map.of());
+    void whoAlsoHasAnotherRoleWithThePermissionSeesThePending(String other) {
+        RequesterIdentity requester = with("BRIGADISTA", other);
+        when(events.findById(EVENT)).thenReturn(Optional.of(convenedEvent()));
+        when(targetPopulation.usuariosActivosPorRoles(ROLES, START, requester))
+                .thenReturn(Optional.of(Set.of(user(1))));
+        when(checkins.buscarUsuariosConEstadoVigente(EVENT)).thenReturn(List.of());
+        when(names.datosDe(List.of(user(1)))).thenReturn(Map.of());
 
-        assertEquals(1, service.pendientes(EVENTO, 0, 20, solicitante).totalElementos());
+        assertEquals(1, service.pendientes(EVENT, 0, 20, requester).totalElementos());
     }
 
     /**
-     * Un evento inexistente responde 404 sin consultar nada más, ni siquiera para un BRIGADISTA (A5)
+     * An unknown event answers 404 without querying anything else, not even for a brigadier (A5)
      *
-     * @param rol rol del solicitante
+     * @param role role of the requester
      */
     @ParameterizedTest
     @ValueSource(strings = { "BRIGADISTA", "COORDINADOR" })
-    void pendientesDeUnEventoInexistenteResponde404(String rol) {
-        when(eventos.findById(EVENTO)).thenReturn(Optional.empty());
+    void pendingOfAnUnknownEventAnswers404(String role) {
+        when(events.findById(EVENT)).thenReturn(Optional.empty());
 
-        ApiException error = assertThrows(ApiException.class, () -> service.pendientes(EVENTO, 0, 20, con(rol)));
+        ApiException error = assertThrows(ApiException.class, () -> service.pendientes(EVENT, 0, 20, with(role)));
 
         assertEquals(ErrorCode.NOT_FOUND, error.getCode());
         assertEquals(DashboardService.EVENTO_NO_ENCONTRADO, error.getMessage());
-        verifyNoInteractions(poblacionObjetivo, checkins, nombres, zonasBrigadista);
+        verifyNoInteractions(targetPopulation, checkins, names, brigadierZones);
     }
 
     /**
-     * Los pendientes se consultan con el evento en cualquier estado (RN-MS04-22)
+     * The pending people are queried with the event in any state (RN-MS04-22)
      *
-     * @param estado estado del evento
+     * @param state state of the event
      */
     @ParameterizedTest
     @EnumSource(EstadoEvento.class)
-    void pendientesFuncionanConElEventoEnCualquierEstado(EstadoEvento estado) {
-        RequesterIdentity coordinador = con("COORDINADOR");
-        Evento evento = eventoConvocado();
-        evento.setEstado(estado);
-        when(eventos.findById(EVENTO)).thenReturn(Optional.of(evento));
-        when(poblacionObjetivo.usuariosActivosPorRoles(ROLES, INICIO, coordinador))
-                .thenReturn(Optional.of(Set.of(usuario(1))));
-        when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of());
-        when(nombres.datosDe(List.of(usuario(1)))).thenReturn(Map.of());
+    void pendingWorksWithTheEventInAnyState(EstadoEvento state) {
+        RequesterIdentity coordinator = with("COORDINADOR");
+        Evento event = convenedEvent();
+        event.setEstado(state);
+        when(events.findById(EVENT)).thenReturn(Optional.of(event));
+        when(targetPopulation.usuariosActivosPorRoles(ROLES, START, coordinator))
+                .thenReturn(Optional.of(Set.of(user(1))));
+        when(checkins.buscarUsuariosConEstadoVigente(EVENT)).thenReturn(List.of());
+        when(names.datosDe(List.of(user(1)))).thenReturn(Map.of());
 
-        assertEquals(1, service.pendientes(EVENTO, 0, 20, coordinador).totalElementos());
+        assertEquals(1, service.pendientes(EVENT, 0, 20, coordinator).totalElementos());
     }
 
     /**
-     * El corte de la población es el inicio del evento si ya pasó, y el momento de la consulta si el evento
-     * todavía no empieza o no tiene fecha de inicio (RN-MS04-15)
+     * The cut of the population is the start of the event if it already passed, and the moment of the query if the
+     * event has not started yet or has no start date (RN-MS04-15)
      *
-     * @param inicio inicio del evento; null si no tiene
-     * @param corte corte esperado
+     * @param start start of the event; null if it has none
+     * @param cut expected cut
      */
     @ParameterizedTest
     @CsvSource(value = { "2026-11-20T14:00:00Z,2026-11-20T14:00:00Z", "2026-11-20T16:00:00Z,2026-11-20T15:10:00Z",
             "null,2026-11-20T15:10:00Z" }, nullValues = "null")
-    void elCorteDeLaPoblacionEsElInicioOElMomentoDeLaConsulta(Instant inicio, Instant corte) {
-        RequesterIdentity coordinador = con("COORDINADOR");
-        Evento evento = eventoConvocado();
-        evento.setFechaInicio(inicio);
-        when(eventos.findById(EVENTO)).thenReturn(Optional.of(evento));
-        when(poblacionObjetivo.usuariosActivosPorRoles(ROLES, corte, coordinador))
+    void theCutOfThePopulationIsTheStartOrTheQueryMoment(Instant start, Instant cut) {
+        RequesterIdentity coordinator = with("COORDINADOR");
+        Evento event = convenedEvent();
+        event.setFechaInicio(start);
+        when(events.findById(EVENT)).thenReturn(Optional.of(event));
+        when(targetPopulation.usuariosActivosPorRoles(ROLES, cut, coordinator))
                 .thenReturn(Optional.of(Set.of()));
-        when(checkins.buscarUsuariosConEstadoVigente(EVENTO)).thenReturn(List.of());
-        when(nombres.datosDe(List.of())).thenReturn(Map.of());
+        when(checkins.buscarUsuariosConEstadoVigente(EVENT)).thenReturn(List.of());
+        when(names.datosDe(List.of())).thenReturn(Map.of());
 
-        assertTrue(service.pendientes(EVENTO, 0, 20, coordinador).contenido().isEmpty());
+        assertTrue(service.pendientes(EVENT, 0, 20, coordinator).contenido().isEmpty());
     }
 }

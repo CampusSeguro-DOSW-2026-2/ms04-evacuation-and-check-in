@@ -23,139 +23,195 @@ import com.sun.net.httpserver.HttpServer;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.exception.ApiException;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.exception.ErrorCode;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.RequesterIdentity;
-import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.IdentidadesDePrueba;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.TestIdentities;
 
 /**
- * Cliente de MS02 contra un servidor HTTP local que hace de Gateway
+ * MS02 client against a local HTTP server that plays the role of the Gateway
  */
 class Ms02PuntoEncuentroClientTest {
 
-    private static final UUID PUNTO = UUID.fromString("0b6f1d2e-3c4a-4b5d-8e9f-a1b2c3d4e5f6");
-    private static final RequesterIdentity USUARIO = IdentidadesDePrueba.identidad(UUID.fromString("3f6c2a9e-8b1d-4c7a-9e2f-1a5b7c9d0e42"), "PROFESOR", "BRIGADISTA");
+    private static final UUID POINT = UUID.fromString("0b6f1d2e-3c4a-4b5d-8e9f-a1b2c3d4e5f6");
+    private static final RequesterIdentity USER = TestIdentities.identity(
+            UUID.fromString("3f6c2a9e-8b1d-4c7a-9e2f-1a5b7c9d0e42"), "PROFESOR", "BRIGADISTA");
 
-    private HttpServer servidor;
-    private final AtomicReference<String> ruta = new AtomicReference<>();
-    private final AtomicReference<Headers> cabeceras = new AtomicReference<>();
+    private HttpServer server;
+    private final AtomicReference<String> path = new AtomicReference<>();
+    private final AtomicReference<Headers> headers = new AtomicReference<>();
     private volatile int status;
-    private volatile String cuerpo;
-    private volatile long demoraMs;
+    private volatile String body;
+    private volatile long delayMs;
 
+    /**
+     * Starts the local server that answers with the configured status, body and delay
+     *
+     * @throws IOException if the server cannot start
+     */
     @BeforeEach
-    void iniciar() throws IOException {
-        servidor = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        servidor.createContext("/", exchange -> {
-            ruta.set(exchange.getRequestURI().getPath());
-            cabeceras.set(exchange.getRequestHeaders());
+    void start() throws IOException {
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> {
+            path.set(exchange.getRequestURI().getPath());
+            headers.set(exchange.getRequestHeaders());
             try {
-                Thread.sleep(demoraMs);
+                Thread.sleep(delayMs);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
-            byte[] bytes = cuerpo == null ? new byte[0] : cuerpo.getBytes(StandardCharsets.UTF_8);
+            byte[] bytes = new byte[0];
+            if (body != null) {
+                bytes = body.getBytes(StandardCharsets.UTF_8);
+            }
             exchange.getResponseHeaders().set("Content-Type", "application/json");
-            exchange.sendResponseHeaders(status, bytes.length == 0 ? -1 : bytes.length);
-            if (bytes.length > 0) {
+            if (bytes.length == 0) {
+                exchange.sendResponseHeaders(status, -1);
+            } else {
+                exchange.sendResponseHeaders(status, bytes.length);
                 try (OutputStream out = exchange.getResponseBody()) {
                     out.write(bytes);
                 }
             }
             exchange.close();
         });
-        servidor.start();
+        server.start();
     }
 
+    /**
+     * Stops the local server
+     */
     @AfterEach
-    void detener() {
-        servidor.stop(0);
+    void stop() {
+        server.stop(0);
     }
 
-    private Ms02PuntoEncuentroClient cliente(long timeoutMs) {
-        return new Ms02PuntoEncuentroClient("http://127.0.0.1:" + servidor.getAddress().getPort() + "/",
+    /**
+     * Client pointing to the local server
+     *
+     * @param timeoutMs client timeout
+     * @return the client
+     */
+    private Ms02PuntoEncuentroClient client(long timeoutMs) {
+        return new Ms02PuntoEncuentroClient("http://127.0.0.1:" + server.getAddress().getPort() + "/",
                 "clave-ms04", timeoutMs, "/api/v1/safe-zones/{id}");
     }
 
-    private void responder(int status, String cuerpo) {
+    /**
+     * Sets the answer of the local server
+     *
+     * @param status status of the answer
+     * @param body body of the answer, or null
+     */
+    private void answer(int status, String body) {
         this.status = status;
-        this.cuerpo = cuerpo;
+        this.body = body;
     }
 
-    private static String zona(String estado) {
-        return "{\"id\":\"" + PUNTO + "\",\"codigo\":\"MP-H-01\",\"nombre\":\"Plazoleta H\","
+    /**
+     * Safe zone of MS02 in a state
+     *
+     * @param state state of the zone
+     * @return the zone in JSON
+     */
+    private static String zone(String state) {
+        return "{\"id\":\"" + POINT + "\",\"codigo\":\"MP-H-01\",\"nombre\":\"Plazoleta H\","
                 + "\"ubicacion\":\"Bloque H\",\"descripcion\":\"Frente al bloque\",\"capacidad\":200,"
-                + "\"estado\":\"" + estado + "\"}";
+                + "\"estado\":\"" + state + "\"}";
     }
 
+    /**
+     * An active point is returned and the request carries the headers of the standard
+     */
     @Test
-    void unPuntoActivoSeDevuelveYLaPeticionLlevaLasCabecerasDelEstandar() {
-        responder(200, zona("ACTIVO"));
+    void anActivePointIsReturnedWithTheHeadersOfTheStandard() {
+        answer(200, zone("ACTIVO"));
 
-        Optional<PuntoEncuentro> punto = cliente(2000).buscar(PUNTO, USUARIO, "corr-123");
+        Optional<PuntoEncuentro> point = client(2000).buscar(POINT, USER, "corr-123");
 
-        assertEquals(Optional.of(new PuntoEncuentro(PUNTO, "MP-H-01", "Plazoleta H", true)), punto);
-        assertEquals("/api/v1/safe-zones/" + PUNTO, ruta.get());
-        Headers h = cabeceras.get();
-        assertEquals("clave-ms04", h.getFirst("X-Service-Key"));
-        assertEquals("corr-123", h.getFirst("X-Correlation-ID"));
-        assertEquals(USUARIO.userId().toString(), h.getFirst("X-User-Id"));
-        assertEquals("BRIGADISTA,PROFESOR", h.getFirst("X-User-Role"));
-        assertEquals(USUARIO.permisosComoCabecera(), h.getFirst("X-User-Permission"));
+        assertEquals(Optional.of(new PuntoEncuentro(POINT, "MP-H-01", "Plazoleta H", true)), point);
+        assertEquals("/api/v1/safe-zones/" + POINT, path.get());
+        Headers received = headers.get();
+        assertEquals("clave-ms04", received.getFirst("X-Service-Key"));
+        assertEquals("corr-123", received.getFirst("X-Correlation-ID"));
+        assertEquals(USER.userId().toString(), received.getFirst("X-User-Id"));
+        assertEquals("BRIGADISTA,PROFESOR", received.getFirst("X-User-Role"));
+        assertEquals(USER.permisosComoCabecera(), received.getFirst("X-User-Permission"));
     }
 
+    /**
+     * An inactive point is returned as not active
+     */
     @Test
-    void unPuntoInactivoSeDevuelveComoNoActivo() {
-        responder(200, zona("INACTIVO"));
+    void anInactivePointIsNotActive() {
+        answer(200, zone("INACTIVO"));
 
-        assertFalse(cliente(2000).buscar(PUNTO, USUARIO, "c").orElseThrow().activo());
+        assertFalse(client(2000).buscar(POINT, USER, "c").orElseThrow().activo());
     }
 
+    /**
+     * A point that does not exist in MS02 returns empty
+     */
     @Test
-    void unPuntoQueNoExisteEnMs02DevuelveVacio() {
-        responder(404, "{\"status\":404,\"codigo\":\"NO_ENCONTRADO\"}");
+    void aPointThatDoesNotExistReturnsEmpty() {
+        answer(404, "{\"status\":404,\"codigo\":\"NO_ENCONTRADO\"}");
 
-        assertTrue(cliente(2000).buscar(PUNTO, USUARIO, "c").isEmpty());
+        assertTrue(client(2000).buscar(POINT, USER, "c").isEmpty());
     }
 
+    /**
+     * Any other answer of MS02 is an unavailable dependency
+     */
     @Test
-    void cualquierOtraRespuestaDeMs02EsDependenciaNoDisponible() {
-        for (int codigo : new int[] { 500, 502, 503, 401, 403 }) {
-            responder(codigo, "{\"mensaje\":\"detalle interno\"}");
-            ApiException e = assertThrows(ApiException.class, () -> cliente(2000).buscar(PUNTO, USUARIO, "c"));
-            assertEquals(ErrorCode.DEPENDENCY_UNAVAILABLE, e.getCode());
+    void anyOtherAnswerIsAnUnavailableDependency() {
+        for (int code : new int[] { 500, 502, 503, 401, 403 }) {
+            answer(code, "{\"mensaje\":\"detalle interno\"}");
+            ApiException error = assertThrows(ApiException.class, () -> client(2000).buscar(POINT, USER, "c"));
+            assertEquals(ErrorCode.DEPENDENCY_UNAVAILABLE, error.getCode());
         }
     }
 
+    /**
+     * An answer without body is an unavailable dependency
+     */
     @Test
-    void unaRespuestaSinCuerpoEsDependenciaNoDisponible() {
-        responder(200, null);
+    void anAnswerWithoutBodyIsAnUnavailableDependency() {
+        answer(200, null);
 
-        ApiException e = assertThrows(ApiException.class, () -> cliente(2000).buscar(PUNTO, USUARIO, "c"));
-        assertEquals(ErrorCode.DEPENDENCY_UNAVAILABLE, e.getCode());
+        ApiException error = assertThrows(ApiException.class, () -> client(2000).buscar(POINT, USER, "c"));
+        assertEquals(ErrorCode.DEPENDENCY_UNAVAILABLE, error.getCode());
     }
 
+    /**
+     * If MS02 does not answer in time it is an unavailable dependency
+     */
     @Test
-    void siMs02NoRespondeATiempoEsDependenciaNoDisponible() {
-        responder(200, zona("ACTIVO"));
-        demoraMs = 1500;
+    void aLateAnswerIsAnUnavailableDependency() {
+        answer(200, zone("ACTIVO"));
+        delayMs = 1500;
 
-        ApiException e = assertThrows(ApiException.class, () -> cliente(300).buscar(PUNTO, USUARIO, "c"));
-        assertEquals(ErrorCode.DEPENDENCY_UNAVAILABLE, e.getCode());
+        ApiException error = assertThrows(ApiException.class, () -> client(300).buscar(POINT, USER, "c"));
+        assertEquals(ErrorCode.DEPENDENCY_UNAVAILABLE, error.getCode());
     }
 
+    /**
+     * Without the URL of the Gateway it is an unavailable dependency
+     */
     @Test
-    void sinLaUrlDelGatewayEsDependenciaNoDisponible() {
-        Ms02PuntoEncuentroClient sinUrl = new Ms02PuntoEncuentroClient("", "clave", 2000,
+    void withoutGatewayUrlIsAnUnavailableDependency() {
+        Ms02PuntoEncuentroClient withoutUrl = new Ms02PuntoEncuentroClient("", "clave", 2000,
                 "/api/v1/safe-zones/{id}");
 
-        ApiException e = assertThrows(ApiException.class, () -> sinUrl.buscar(PUNTO, USUARIO, "c"));
-        assertEquals(ErrorCode.DEPENDENCY_UNAVAILABLE, e.getCode());
+        ApiException error = assertThrows(ApiException.class, () -> withoutUrl.buscar(POINT, USER, "c"));
+        assertEquals(ErrorCode.DEPENDENCY_UNAVAILABLE, error.getCode());
     }
 
+    /**
+     * If the Gateway is down it is an unavailable dependency
+     */
     @Test
-    void siElGatewayNoEstaArribaEsDependenciaNoDisponible() {
-        Ms02PuntoEncuentroClient cliente = cliente(2000);
-        servidor.stop(0);
+    void aGatewayDownIsAnUnavailableDependency() {
+        Ms02PuntoEncuentroClient client = client(2000);
+        server.stop(0);
 
-        ApiException e = assertThrows(ApiException.class, () -> cliente.buscar(PUNTO, USUARIO, "c"));
-        assertEquals(ErrorCode.DEPENDENCY_UNAVAILABLE, e.getCode());
+        ApiException error = assertThrows(ApiException.class, () -> client.buscar(POINT, USER, "c"));
+        assertEquals(ErrorCode.DEPENDENCY_UNAVAILABLE, error.getCode());
     }
 }
