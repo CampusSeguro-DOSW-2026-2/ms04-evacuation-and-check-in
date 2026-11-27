@@ -1,5 +1,5 @@
 {
-  "name": "MS01: población objetivo por roles (supuesto, decisión abierta n.º 2). Página vacía: la carga no la necesita",
+  "name": "MS01: población objetivo por rol (GET /api/v1/users/by-role, RF-MS01-09). Página vacía: la carga no la necesita",
   "request": { "method": "GET", "urlPath": "/api/v1/users/by-role" },
   "response": {
     "status": 200,

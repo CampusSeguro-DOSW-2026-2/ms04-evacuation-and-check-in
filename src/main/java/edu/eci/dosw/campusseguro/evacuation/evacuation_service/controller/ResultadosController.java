@@ -31,8 +31,7 @@ public class ResultadosController {
 
     @Operation(summary = "Resultados del evento (RF-MS04-10)",
             description = "Permiso ms04:history:read. Datos de check-in del evento; finales es false mientras el "
-                    + "evento no esté FINALIZADO. MS04 no calcula indicadores. La política de acceso para MS06 y "
-                    + "MS08 está pendiente (decisión abierta n.º 6).")
+                    + "evento no esté FINALIZADO. MS04 no calcula indicadores.")
     @GetMapping("/{eventoId}/resultados")
     public Resultados resultados(@PathVariable UUID eventoId, RequesterIdentity requester) {
         PermissionChecker.require(requester, Permiso.HISTORY_READ);

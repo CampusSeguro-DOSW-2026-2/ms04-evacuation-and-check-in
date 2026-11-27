@@ -79,11 +79,23 @@ function correlacion() {
   });
 }
 
+// Permisos que el Gateway envía en X-User-Permission para cada rol, según la asignación inicial de la matriz
+// rol-permiso (integration/permissions-matrix.md del repositorio documentation)
+const PERMISOS_BASE = ['ms01:profile:read', 'ms01:session:logout'];
+const PERMISOS_COMUNIDAD = ['ms04:assistance:request', 'ms04:checkin:read_own', 'ms04:checkin:write'];
+const PERMISOS = {
+  ESTUDIANTE: PERMISOS_COMUNIDAD,
+  COORDINADOR: PERMISOS_COMUNIDAD.concat(['ms04:dashboard:read', 'ms04:history:read']),
+  ORGANIZADOR: PERMISOS_COMUNIDAD.concat(['ms04:dashboard:read', 'ms04:history:read']),
+};
+
+/** Cabeceras de identidad que el Gateway inyecta para un usuario con un rol */
 function cabeceras(usuarioId, rol) {
   return {
     'Content-Type': 'application/json',
     'X-User-Id': usuarioId,
     'X-User-Role': rol,
+    'X-User-Permission': PERMISOS_BASE.concat(PERMISOS[rol]).join(','),
     'X-Correlation-ID': correlacion(),
   };
 }

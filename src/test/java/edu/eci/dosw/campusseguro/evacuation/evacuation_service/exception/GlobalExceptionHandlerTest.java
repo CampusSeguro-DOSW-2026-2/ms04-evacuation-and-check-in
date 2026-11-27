@@ -74,7 +74,6 @@ class GlobalExceptionHandlerTest {
                 "El servicio no está disponible en este momento. Intente de nuevo.");
         check("/falla/prohibido", 403, "PROHIBIDO",
                 "No cuenta con los permisos suficientes para realizar esta operación.");
-        check("/falla/no-implementado", 501, "NO_IMPLEMENTADO", "Operación pendiente de implementar: prueba.");
     }
 
     /**
@@ -326,14 +325,6 @@ class GlobalExceptionHandlerTest {
         @GetMapping("/falla/prohibido")
         void forbidden() {
             throw ApiException.prohibido();
-        }
-
-        /**
-         * Fails with an operation that is not implemented
-         */
-        @GetMapping("/falla/no-implementado")
-        void notImplemented() {
-            throw ApiException.noImplementado("prueba");
         }
 
         /**

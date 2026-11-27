@@ -21,7 +21,7 @@ jobs:
           java-version: '21'
           cache: maven
 
-      # Las pruebas de acceso a datos usan PostgreSQL real con Testcontainers: el runner ya trae Docker
+      # Las pruebas no necesitan base de datos ni Docker: usan JUnit 5, Mockito y MockMvc
       - name: Compilar, probar y generar cobertura (JaCoCo)
         run: mvn -B verify
 
