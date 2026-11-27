@@ -22,7 +22,7 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.exception.ApiExce
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Los nombres salen de MS01 con POST /users/batch y, si MS01 falla, la consulta sigue con el mapa vacío
+ * The names come from MS01 with POST /users/batch and, if MS01 fails, the query goes on with an empty map
  * (RN-MS04-25)
  */
 @ExtendWith(MockitoExtension.class)
@@ -37,25 +37,25 @@ class UsuarioNombresClientTest {
     private GatewayClient gateway;
 
     /**
-     * Pide a MS01 los ids recibidos con el contrato de POST /users/batch
+     * Asks MS01 for the received ids with the contract of POST /users/batch
      */
     @Test
-    void pideAMs01LosIdsConElContratoDelBatch() {
+    void asksMs01ForTheIdsWithTheBatchContract() {
         when(gateway.post(eq(UsuarioNombresClientImpl.BATCH_PATH), any()))
                 .thenReturn(json.readTree("{\"usuarios\":[],\"no_encontrados\":[]}"));
 
         new UsuarioNombresClientImpl(gateway).nombresDe(List.of(ANA, LUIS));
 
-        ArgumentCaptor<String> cuerpo = ArgumentCaptor.forClass(String.class);
-        verify(gateway).post(eq("/api/v1/users/batch"), cuerpo.capture());
-        assertEquals("{\"ids\":[\"" + ANA + "\",\"" + LUIS + "\"]}", cuerpo.getValue());
+        ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
+        verify(gateway).post(eq("/api/v1/users/batch"), body.capture());
+        assertEquals("{\"ids\":[\"" + ANA + "\",\"" + LUIS + "\"]}", body.getValue());
     }
 
     /**
-     * Arma el nombre completo con los cuatro campos y omite el segundo nombre y el segundo apellido si no hay
+     * Builds the full name with the four fields and skips the second name and the second surname when missing
      */
     @Test
-    void armaElNombreCompletoOmitiendoLosCamposVacios() {
+    void buildsTheFullNameSkippingEmptyFields() {
         when(gateway.post(any(), any())).thenReturn(json.readTree("""
                 {"usuarios":[
                   {"id":"%s","primer_nombre":"Ana","segundo_nombre":"María","primer_apellido":"Pérez",
@@ -63,75 +63,75 @@ class UsuarioNombresClientTest {
                   {"id":"%s","primer_nombre":"Luis","primer_apellido":"Rojas","segundo_nombre":"  "}
                 ],"no_encontrados":[]}""".formatted(ANA, LUIS)));
 
-        Map<UUID, String> nombres = new UsuarioNombresClientImpl(gateway).nombresDe(List.of(ANA, LUIS));
+        Map<UUID, String> names = new UsuarioNombresClientImpl(gateway).nombresDe(List.of(ANA, LUIS));
 
-        assertEquals(Map.of(ANA, "Ana María Pérez Gómez", LUIS, "Luis Rojas"), nombres);
+        assertEquals(Map.of(ANA, "Ana María Pérez Gómez", LUIS, "Luis Rojas"), names);
     }
 
     /**
-     * Entrega el nombre completo y el correo de cada usuario; el correo vacío o ausente queda nulo
+     * Delivers the full name and the email of each user; an empty or missing email stays null
      */
     @Test
-    void entregaElNombreYElCorreoDeCadaUsuario() {
+    void deliversTheNameAndTheEmailOfEachUser() {
         when(gateway.post(any(), any())).thenReturn(json.readTree("""
                 {"usuarios":[
                   {"id":"%s","primer_nombre":"Ana","primer_apellido":"Pérez","correo":" ana@escuelaing.edu.co "},
                   {"id":"%s","primer_nombre":"Luis","primer_apellido":"Rojas"}
                 ],"no_encontrados":[]}""".formatted(ANA, LUIS)));
 
-        Map<UUID, DatosUsuario> datos = new UsuarioNombresClientImpl(gateway).datosDe(List.of(ANA, LUIS));
+        Map<UUID, DatosUsuario> data = new UsuarioNombresClientImpl(gateway).datosDe(List.of(ANA, LUIS));
 
         assertEquals(Map.of(ANA, new DatosUsuario("Ana Pérez", "ana@escuelaing.edu.co"),
-                LUIS, new DatosUsuario("Luis Rojas", null)), datos);
+                LUIS, new DatosUsuario("Luis Rojas", null)), data);
     }
 
     /**
-     * Los usuarios que MS01 no encontró no aparecen en el mapa
+     * The users that MS01 did not find are not in the map
      */
     @Test
-    void losUsuariosNoEncontradosNoAparecen() {
+    void theUsersNotFoundAreNotInTheMap() {
         when(gateway.post(any(), any())).thenReturn(json.readTree("""
                 {"usuarios":[{"id":"%s","primer_nombre":"Ana","primer_apellido":"Pérez"}],
                  "no_encontrados":["%s"]}""".formatted(ANA, LUIS)));
 
-        Map<UUID, String> nombres = new UsuarioNombresClientImpl(gateway).nombresDe(List.of(ANA, LUIS));
+        Map<UUID, String> names = new UsuarioNombresClientImpl(gateway).nombresDe(List.of(ANA, LUIS));
 
-        assertEquals(Map.of(ANA, "Ana Pérez"), nombres);
+        assertEquals(Map.of(ANA, "Ana Pérez"), names);
     }
 
     /**
-     * Sin ids no llama a MS01
+     * Without ids MS01 is not called
      */
     @Test
-    void sinIdsNoLlamaAMs01() {
-        Map<UUID, String> nombres = new UsuarioNombresClientImpl(gateway).nombresDe(List.of());
+    void withoutIdsMs01IsNotCalled() {
+        Map<UUID, String> names = new UsuarioNombresClientImpl(gateway).nombresDe(List.of());
 
-        assertTrue(nombres.isEmpty());
+        assertTrue(names.isEmpty());
         verifyNoInteractions(gateway);
     }
 
     /**
-     * Si MS01 no responde, devuelve el mapa vacío en lugar de fallar
+     * If MS01 does not answer, the map is empty instead of failing
      */
     @Test
-    void siMs01NoRespondeDevuelveElMapaVacio() {
+    void ifMs01DoesNotAnswerTheMapIsEmpty() {
         when(gateway.post(any(), any())).thenThrow(ApiException.dependenciaNoDisponible());
 
-        Map<UUID, String> nombres = new UsuarioNombresClientImpl(gateway).nombresDe(List.of(ANA));
+        Map<UUID, String> names = new UsuarioNombresClientImpl(gateway).nombresDe(List.of(ANA));
 
-        assertTrue(nombres.isEmpty());
+        assertTrue(names.isEmpty());
     }
 
     /**
-     * Si MS01 responde un id que no es UUID, devuelve el mapa vacío en lugar de fallar
+     * If MS01 answers an id that is not a UUID, the map is empty instead of failing
      */
     @Test
-    void siMs01RespondeUnIdInvalidoDevuelveElMapaVacio() {
+    void ifMs01AnswersAnInvalidIdTheMapIsEmpty() {
         when(gateway.post(any(), any())).thenReturn(json.readTree(
                 "{\"usuarios\":[{\"id\":\"no-es-uuid\",\"primer_nombre\":\"Ana\"}]}"));
 
-        Map<UUID, String> nombres = new UsuarioNombresClientImpl(gateway).nombresDe(List.of(ANA));
+        Map<UUID, String> names = new UsuarioNombresClientImpl(gateway).nombresDe(List.of(ANA));
 
-        assertTrue(nombres.isEmpty());
+        assertTrue(names.isEmpty());
     }
 }

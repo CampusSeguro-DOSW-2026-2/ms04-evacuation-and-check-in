@@ -20,78 +20,115 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.exception.ApiExce
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.exception.ErrorCode;
 
 /**
- * Validación del cuerpo del check-in según el estado reportado (RN-MS04-03, RG-05)
+ * Validation of the body of the check-in according to the reported state (RN-MS04-03, RG-05)
  */
 class CheckinValidatorTest {
 
-    private static final UUID PUNTO = UUID.fromString("0b6f1d2e-3c4a-4b5d-8e9f-a1b2c3d4e5f6");
-    private static final Ubicacion UBICACION = new Ubicacion(TipoUbicacion.EDIFICIO,
+    private static final UUID POINT = UUID.fromString("0b6f1d2e-3c4a-4b5d-8e9f-a1b2c3d4e5f6");
+    private static final Ubicacion LOCATION = new Ubicacion(TipoUbicacion.EDIFICIO,
             UUID.fromString("5d4c3b2a-1f0e-4d9c-8b7a-6f5e4d3c2b1a"));
 
-    private static List<ErrorDetail> errores(CheckinRequest request) {
-        ApiException e = assertThrows(ApiException.class, () -> CheckinValidator.validar(request));
-        assertEquals(ErrorCode.VALIDATION, e.getCode());
-        return e.getErrors();
+    /**
+     * Validates a body that must be rejected and returns its errors
+     *
+     * @param request body of the check-in
+     * @return the errors of the 400 answer
+     */
+    private static List<ErrorDetail> errorsOf(CheckinRequest request) {
+        ApiException error = assertThrows(ApiException.class, () -> CheckinValidator.validar(request));
+        assertEquals(ErrorCode.VALIDATION, error.getCode());
+        return error.getErrors();
     }
 
+    /**
+     * Without state, or with a state outside the catalog, a valid state is requested
+     */
     @Test
-    void sinEstadoOConUnEstadoFueraDelCatalogoPideUnEstadoValido() {
+    void withoutStateAValidStateIsRequested() {
         assertEquals(List.of(new ErrorDetail(CheckinValidator.CAMPO_ESTADO, CheckinValidator.ESTADO_INVALIDO)),
-                errores(new CheckinRequest(null, PUNTO, UBICACION)));
+                errorsOf(new CheckinRequest(null, POINT, LOCATION)));
+        assertEquals(List.of(new ErrorDetail(CheckinValidator.CAMPO_ESTADO, CheckinValidator.ESTADO_INVALIDO)),
+                errorsOf(null));
     }
 
+    /**
+     * SAFE requires the meeting point
+     */
     @Test
-    void estoyASalvoExigeElPuntoDeEncuentro() {
+    void safeRequiresTheMeetingPoint() {
         assertEquals(List.of(new ErrorDetail(CheckinValidator.CAMPO_PUNTO, CheckinValidator.FALTA_PUNTO)),
-                errores(new CheckinRequest(EstadoCheckin.SAFE, null, null)));
+                errorsOf(new CheckinRequest(EstadoCheckin.SAFE, null, null)));
     }
 
+    /**
+     * SAFE does not accept a location
+     */
     @Test
-    void estoyASalvoNoAdmiteUbicacion() {
+    void safeDoesNotAcceptALocation() {
         assertEquals(List.of(new ErrorDetail(CheckinValidator.CAMPO_UBICACION,
                 CheckinValidator.UBICACION_SOLO_ASISTENCIA)),
-                errores(new CheckinRequest(EstadoCheckin.SAFE, PUNTO, UBICACION)));
+                errorsOf(new CheckinRequest(EstadoCheckin.SAFE, POINT, LOCATION)));
     }
 
+    /**
+     * SAFE with a meeting point is valid
+     */
     @Test
-    void estoyASalvoConPuntoEsValido() {
-        assertDoesNotThrow(() -> CheckinValidator.validar(new CheckinRequest(EstadoCheckin.SAFE, PUNTO, null)));
+    void safeWithPointIsValid() {
+        assertDoesNotThrow(() -> CheckinValidator.validar(new CheckinRequest(EstadoCheckin.SAFE, POINT, null)));
     }
 
+    /**
+     * NEEDS_ASSISTANCE requires the location
+     */
     @Test
-    void requieroAsistenciaExigeLaUbicacion() {
+    void needsAssistanceRequiresTheLocation() {
         assertEquals(List.of(new ErrorDetail(CheckinValidator.CAMPO_UBICACION, CheckinValidator.FALTA_UBICACION)),
-                errores(new CheckinRequest(EstadoCheckin.NEEDS_ASSISTANCE, null, null)));
+                errorsOf(new CheckinRequest(EstadoCheckin.NEEDS_ASSISTANCE, null, null)));
     }
 
+    /**
+     * NEEDS_ASSISTANCE requires the type and the id of the location
+     */
     @Test
-    void requieroAsistenciaExigeTipoEIdDeLaUbicacion() {
-        List<ErrorDetail> errores = errores(new CheckinRequest(EstadoCheckin.NEEDS_ASSISTANCE, null,
+    void needsAssistanceRequiresTypeAndIdOfTheLocation() {
+        List<ErrorDetail> errors = errorsOf(new CheckinRequest(EstadoCheckin.NEEDS_ASSISTANCE, null,
                 new Ubicacion(null, null)));
         assertEquals(List.of(
                 new ErrorDetail(CheckinValidator.CAMPO_UBICACION_TIPO, CheckinValidator.FALTA_UBICACION),
-                new ErrorDetail(CheckinValidator.CAMPO_UBICACION_ID, CheckinValidator.FALTA_LUGAR)), errores);
+                new ErrorDetail(CheckinValidator.CAMPO_UBICACION_ID, CheckinValidator.FALTA_LUGAR)), errors);
     }
 
+    /**
+     * NEEDS_ASSISTANCE does not accept a meeting point
+     */
     @Test
-    void requieroAsistenciaNoAdmitePuntoDeEncuentro() {
+    void needsAssistanceDoesNotAcceptAMeetingPoint() {
         assertEquals(List.of(new ErrorDetail(CheckinValidator.CAMPO_PUNTO, CheckinValidator.PUNTO_SOLO_SAFE)),
-                errores(new CheckinRequest(EstadoCheckin.NEEDS_ASSISTANCE, PUNTO, UBICACION)));
+                errorsOf(new CheckinRequest(EstadoCheckin.NEEDS_ASSISTANCE, POINT, LOCATION)));
     }
 
+    /**
+     * NEEDS_ASSISTANCE with a location is valid
+     */
     @Test
-    void requieroAsistenciaConUbicacionEsValido() {
+    void needsAssistanceWithLocationIsValid() {
         assertDoesNotThrow(() -> CheckinValidator.validar(
-                new CheckinRequest(EstadoCheckin.NEEDS_ASSISTANCE, null, UBICACION)));
+                new CheckinRequest(EstadoCheckin.NEEDS_ASSISTANCE, null, LOCATION)));
     }
 
+    /**
+     * EVACUATING and OFF_CAMPUS carry neither meeting point nor location
+     *
+     * @param state reported state
+     */
     @ParameterizedTest
     @EnumSource(value = EstadoCheckin.class, names = { "EVACUATING", "OFF_CAMPUS" })
-    void evacuandoYFueraDelCampusNoLlevanNiPuntoNiUbicacion(EstadoCheckin estado) {
-        assertDoesNotThrow(() -> CheckinValidator.validar(new CheckinRequest(estado, null, null)));
+    void evacuatingAndOffCampusCarryNeitherPointNorLocation(EstadoCheckin state) {
+        assertDoesNotThrow(() -> CheckinValidator.validar(new CheckinRequest(state, null, null)));
         assertEquals(List.of(
                 new ErrorDetail(CheckinValidator.CAMPO_PUNTO, CheckinValidator.PUNTO_SOLO_SAFE),
                 new ErrorDetail(CheckinValidator.CAMPO_UBICACION, CheckinValidator.UBICACION_SOLO_ASISTENCIA)),
-                errores(new CheckinRequest(estado, PUNTO, UBICACION)));
+                errorsOf(new CheckinRequest(state, POINT, LOCATION)));
     }
 }

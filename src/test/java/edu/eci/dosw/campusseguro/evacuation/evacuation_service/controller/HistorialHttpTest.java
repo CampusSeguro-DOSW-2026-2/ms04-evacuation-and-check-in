@@ -41,13 +41,13 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.Evento
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.CorrelationIdFilter;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.IdentityHeaders;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.service.HistorialService;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.TestIdentities;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.util.CorrelationIds;
-import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.IdentidadesDePrueba;
 
 /**
- * Contrato HTTP de RF-MS04-09: GET /api/v1/chi/eventos/{eventoId}/historial con el service real y los
- * repositorios simulados. Comprueba la forma de la respuesta, los filtros, los errores estándar, el permiso
- * ms04:history:read y que el histórico no depende de quién consulta
+ * HTTP contract of RF-MS04-09: GET /api/v1/chi/eventos/{eventoId}/historial with the real service and the mocked
+ * repositories. It checks the shape of the answer, the filters, the standard errors, the permission ms04:history:read
+ * and that the history does not depend on who queries it
  */
 @WebMvcTest(controllers = HistorialController.class)
 @Import({ SecurityConfig.class, WebMvcConfig.class, GlobalExceptionHandler.class, CorrelationIdFilter.class,
@@ -55,76 +55,78 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.Identidad
 @TestPropertySource(properties = "internal.allowed-services=ms06")
 class HistorialHttpTest {
 
-    private static final String USUARIO = "6c0d2f48-1b3e-4a57-9d8c-2e4f6a8b0c13";
-    private static final UUID EVENTO = UUID.fromString("7c1d5b2e-4f3a-4e8b-9a61-0d2f8c3b5a17");
+    private static final String USER = "6c0d2f48-1b3e-4a57-9d8c-2e4f6a8b0c13";
+    private static final UUID EVENT = UUID.fromString("7c1d5b2e-4f3a-4e8b-9a61-0d2f8c3b5a17");
     private static final UUID ANA = UUID.fromString("3f6c2a9e-8b1d-4c7a-9e2f-1a5b7c9d0e42");
-    private static final UUID PUNTO_A = UUID.fromString("7a1d4e2b-5c3f-4a8e-b9d0-2e6f1c4a7b35");
-    private static final UUID EDIFICIO = UUID.fromString("0b6f3d1a-2c4e-4f58-8a97-5d3e1b7c9a20");
-    private static final UUID SIN_USUARIO = null;
-    private static final EstadoCheckin SIN_ESTADO = null;
+    private static final UUID POINT_A = UUID.fromString("7a1d4e2b-5c3f-4a8e-b9d0-2e6f1c4a7b35");
+    private static final UUID BUILDING = UUID.fromString("0b6f3d1a-2c4e-4f58-8a97-5d3e1b7c9a20");
+    private static final UUID NO_USER = null;
+    private static final EstadoCheckin NO_STATE = null;
     private static final String CORRELATION = "c19b472d-7a2a-4d3b-a12b-abcdef123456";
-    private static final String BASE = "/api/v1/chi/eventos/" + EVENTO;
+    private static final String BASE = "/api/v1/chi/eventos/" + EVENT;
 
     @Autowired
     private MockMvc mockMvc;
 
     @MockitoBean
-    private EventoRepository eventos;
+    private EventoRepository events;
 
     @MockitoBean
     private CheckinRepository checkins;
 
     @MockitoBean
-    private UsuarioNombresClient nombres;
+    private UsuarioNombresClient names;
 
     /**
-     * Crea un check-in como lo devuelve la base de datos, con el id y la fecha que asigna ella
+     * Creates a check-in as the database returns it, with the id and the date that it assigns
      *
-     * @param usuario usuario que reporta
-     * @param estado estado reportado
-     * @param punto punto de encuentro, solo con SAFE
-     * @param tipo tipo de ubicación, solo con NEEDS_ASSISTANCE
-     * @param ubicacion id de la ubicación, solo con NEEDS_ASSISTANCE
-     * @param registrado fecha y hora del reporte
-     * @return el check-in con su id y su fecha de registro
+     * @param user user that reports
+     * @param state reported state
+     * @param point meeting point, only with SAFE
+     * @param type location type, only with NEEDS_ASSISTANCE
+     * @param location location id, only with NEEDS_ASSISTANCE
+     * @param registeredAt date of the report
+     * @return the check-in with its id and registration date
      */
-    private Checkin checkin(UUID usuario, EstadoCheckin estado, UUID punto, TipoUbicacion tipo, UUID ubicacion,
-            String registrado) {
-        Checkin checkin = new Checkin(EVENTO, usuario, estado, punto, tipo, ubicacion);
+    private Checkin checkin(UUID user, EstadoCheckin state, UUID point, TipoUbicacion type, UUID location,
+            String registeredAt) {
+        Checkin checkin = new Checkin(EVENT, user, state, point, type, location);
         ReflectionTestUtils.setField(checkin, "id", UUID.randomUUID());
-        ReflectionTestUtils.setField(checkin, "registradoEn", Instant.parse(registrado));
+        ReflectionTestUtils.setField(checkin, "registradoEn", Instant.parse(registeredAt));
         return checkin;
     }
 
     /**
-     * Petición de un usuario con el rol indicado
+     * Request of a user with the given role
      *
-     * @param ruta ruta y consulta de la petición
-     * @param rol rol o roles de la cabecera X-User-Role
-     * @return la petición con las cabeceras de identidad y de correlación
+     * @param route route and query of the request
+     * @param role role or roles of the X-User-Role header
+     * @return the request with the identity and correlation headers
      */
-    private MockHttpServletRequestBuilder como(String ruta, String rol) {
-        return get(ruta).header(IdentityHeaders.USER_ID, USUARIO).header(IdentityHeaders.USER_ROLE, rol).header(IdentityHeaders.USER_PERMISSION, IdentidadesDePrueba.permisos(rol))
+    private MockHttpServletRequestBuilder as(String route, String role) {
+        return get(route).header(IdentityHeaders.USER_ID, USER)
+                .header(IdentityHeaders.USER_ROLE, role)
+                .header(IdentityHeaders.USER_PERMISSION, TestIdentities.permissions(role))
                 .header(CorrelationIds.HEADER, CORRELATION);
     }
 
     /**
-     * El histórico responde 200 con los campos del contrato en snake_case: cada reporte con su id, usuario,
-     * estado, punto de encuentro o ubicación y fecha, y la paginación de los Estándares
+     * The history answers 200 with the fields of the contract in snake_case: each report with its id, user, state,
+     * meeting point or location and date, and the pagination of the standards
      *
-     * @throws Exception si falla la petición
+     * @throws Exception if the request fails
      */
     @Test
-    void historialResponde200ConElContratoEnSnakeCase() throws Exception {
-        Checkin evacuando = checkin(ANA, EstadoCheckin.EVACUATING, null, null, null, "2026-11-20T15:02:05Z");
-        Checkin asistencia = checkin(ANA, EstadoCheckin.NEEDS_ASSISTANCE, null, TipoUbicacion.EDIFICIO, EDIFICIO,
+    void historyAnswers200WithTheContractInSnakeCase() throws Exception {
+        Checkin evacuating = checkin(ANA, EstadoCheckin.EVACUATING, null, null, null, "2026-11-20T15:02:05Z");
+        Checkin assistance = checkin(ANA, EstadoCheckin.NEEDS_ASSISTANCE, null, TipoUbicacion.EDIFICIO, BUILDING,
                 "2026-11-20T15:04:12Z");
-        Checkin aSalvo = checkin(ANA, EstadoCheckin.SAFE, PUNTO_A, null, null, "2026-11-20T15:09:40Z");
-        when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(checkins.buscarHistorial(EVENTO, SIN_USUARIO, SIN_ESTADO, PageRequest.of(0, 20))).thenReturn(
-                new PageImpl<>(List.of(evacuando, asistencia, aSalvo), PageRequest.of(0, 20), 3));
+        Checkin safe = checkin(ANA, EstadoCheckin.SAFE, POINT_A, null, null, "2026-11-20T15:09:40Z");
+        when(events.existsById(EVENT)).thenReturn(true);
+        when(checkins.buscarHistorial(EVENT, NO_USER, NO_STATE, PageRequest.of(0, 20))).thenReturn(
+                new PageImpl<>(List.of(evacuating, assistance, safe), PageRequest.of(0, 20), 3));
 
-        mockMvc.perform(como(BASE + "/historial", "COORDINADOR"))
+        mockMvc.perform(as(BASE + "/historial", "COORDINADOR"))
                 .andExpect(status().isOk())
                 .andExpect(header().string(CorrelationIds.HEADER, CORRELATION))
                 .andExpect(jsonPath("$.page").value(0))
@@ -132,7 +134,7 @@ class HistorialHttpTest {
                 .andExpect(jsonPath("$.total_elementos").value(3))
                 .andExpect(jsonPath("$.total_paginas").value(1))
                 .andExpect(jsonPath("$.contenido", hasSize(3)))
-                .andExpect(jsonPath("$.contenido[0].checkin_id").value(evacuando.getId().toString()))
+                .andExpect(jsonPath("$.contenido[0].checkin_id").value(evacuating.getId().toString()))
                 .andExpect(jsonPath("$.contenido[0].usuario_id").value(ANA.toString()))
                 .andExpect(jsonPath("$.contenido[0].estado").value("EVACUATING"))
                 .andExpect(jsonPath("$.contenido[0].punto_encuentro_id").value(nullValue()))
@@ -141,26 +143,26 @@ class HistorialHttpTest {
                 .andExpect(jsonPath("$.contenido[1].estado").value("NEEDS_ASSISTANCE"))
                 .andExpect(jsonPath("$.contenido[1].punto_encuentro_id").value(nullValue()))
                 .andExpect(jsonPath("$.contenido[1].ubicacion.tipo").value("EDIFICIO"))
-                .andExpect(jsonPath("$.contenido[1].ubicacion.id").value(EDIFICIO.toString()))
+                .andExpect(jsonPath("$.contenido[1].ubicacion.id").value(BUILDING.toString()))
                 .andExpect(jsonPath("$.contenido[1].registrado_en").value("2026-11-20T15:04:12Z"))
                 .andExpect(jsonPath("$.contenido[2].estado").value("SAFE"))
-                .andExpect(jsonPath("$.contenido[2].punto_encuentro_id").value(PUNTO_A.toString()))
+                .andExpect(jsonPath("$.contenido[2].punto_encuentro_id").value(POINT_A.toString()))
                 .andExpect(jsonPath("$.contenido[2].ubicacion").value(nullValue()))
                 .andExpect(jsonPath("$.contenido[2].registrado_en").value("2026-11-20T15:09:40Z"));
     }
 
     /**
-     * A4: un evento sin check-ins responde 200 con la lista vacía, total 0 y sin páginas
+     * A4: an event without check-ins answers 200 with the empty list, total 0 and without pages
      *
-     * @throws Exception si falla la petición
+     * @throws Exception if the request fails
      */
     @Test
-    void historialSinCheckinsResponde200ConLaListaVacia() throws Exception {
-        when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(checkins.buscarHistorial(EVENTO, SIN_USUARIO, SIN_ESTADO, PageRequest.of(0, 20)))
+    void historyWithoutCheckinsAnswers200WithTheEmptyList() throws Exception {
+        when(events.existsById(EVENT)).thenReturn(true);
+        when(checkins.buscarHistorial(EVENT, NO_USER, NO_STATE, PageRequest.of(0, 20)))
                 .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 20), 0));
 
-        mockMvc.perform(como(BASE + "/historial", "AUDITOR"))
+        mockMvc.perform(as(BASE + "/historial", "AUDITOR"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.contenido", hasSize(0)))
                 .andExpect(jsonPath("$.total_elementos").value(0))
@@ -168,133 +170,133 @@ class HistorialHttpTest {
     }
 
     /**
-     * El usuario, el estado, la página y el tamaño pedidos llegan a la consulta, y el histórico no depende de
-     * quién consulta: el usuario filtrado puede ser otro distinto del que pide
+     * The requested user, state, page and size reach the query, and the history does not depend on who queries it:
+     * the filtered user may be another one than the requester
      *
-     * @throws Exception si falla la petición
+     * @throws Exception if the request fails
      */
     @Test
-    void historialUsaLosFiltrosYLaPaginaPedidosYNoLaIdentidadDeQuienConsulta() throws Exception {
-        when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(checkins.buscarHistorial(EVENTO, ANA, EstadoCheckin.SAFE, PageRequest.of(2, 5)))
+    void historyUsesTheRequestedFiltersAndNotTheIdentityOfTheRequester() throws Exception {
+        when(events.existsById(EVENT)).thenReturn(true);
+        when(checkins.buscarHistorial(EVENT, ANA, EstadoCheckin.SAFE, PageRequest.of(2, 5)))
                 .thenReturn(new PageImpl<>(List.of(), PageRequest.of(2, 5), 12));
 
-        mockMvc.perform(como(BASE + "/historial?usuario_id=" + ANA + "&estado=SAFE&page=2&size=5", "ORGANIZADOR"))
+        mockMvc.perform(as(BASE + "/historial?usuario_id=" + ANA + "&estado=SAFE&page=2&size=5", "ORGANIZADOR"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.page").value(2))
                 .andExpect(jsonPath("$.size").value(5))
                 .andExpect(jsonPath("$.total_elementos").value(12))
                 .andExpect(jsonPath("$.total_paginas").value(3));
 
-        verify(checkins).buscarHistorial(EVENTO, ANA, EstadoCheckin.SAFE, PageRequest.of(2, 5));
+        verify(checkins).buscarHistorial(EVENT, ANA, EstadoCheckin.SAFE, PageRequest.of(2, 5));
     }
 
     /**
-     * Sin filtros el histórico trae todo el evento, con 20 por página
+     * Without filters the history brings the whole event, with 20 per page
      *
-     * @throws Exception si falla la petición
+     * @throws Exception if the request fails
      */
     @Test
-    void historialSinFiltrosPideTodoElEventoConVeintePorPagina() throws Exception {
-        when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(checkins.buscarHistorial(EVENTO, SIN_USUARIO, SIN_ESTADO, PageRequest.of(0, 20)))
+    void historyWithoutFiltersRequestsTheWholeEventWithTwentyPerPage() throws Exception {
+        when(events.existsById(EVENT)).thenReturn(true);
+        when(checkins.buscarHistorial(EVENT, NO_USER, NO_STATE, PageRequest.of(0, 20)))
                 .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 20), 0));
 
-        mockMvc.perform(como(BASE + "/historial", "COORDINADOR")).andExpect(status().isOk());
+        mockMvc.perform(as(BASE + "/historial", "COORDINADOR")).andExpect(status().isOk());
 
-        verify(checkins).buscarHistorial(EVENTO, SIN_USUARIO, SIN_ESTADO, PageRequest.of(0, 20));
+        verify(checkins).buscarHistorial(EVENT, NO_USER, NO_STATE, PageRequest.of(0, 20));
     }
 
     /**
-     * Cada estado del catálogo se puede usar como filtro
+     * Each state of the catalog can be used as filter
      *
-     * @param estado estado del catálogo
-     * @throws Exception si falla la petición
+     * @param state state of the catalog
+     * @throws Exception if the request fails
      */
     @ParameterizedTest
     @ValueSource(strings = { "SAFE", "EVACUATING", "NEEDS_ASSISTANCE", "OFF_CAMPUS" })
-    void historialAceptaCadaEstadoDelCatalogoComoFiltro(String estado) throws Exception {
-        when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(checkins.buscarHistorial(EVENTO, SIN_USUARIO, EstadoCheckin.valueOf(estado), PageRequest.of(0, 20)))
+    void historyAcceptsEachStateOfTheCatalogAsFilter(String state) throws Exception {
+        when(events.existsById(EVENT)).thenReturn(true);
+        when(checkins.buscarHistorial(EVENT, NO_USER, EstadoCheckin.valueOf(state), PageRequest.of(0, 20)))
                 .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 20), 0));
 
-        mockMvc.perform(como(BASE + "/historial?estado=" + estado, "COORDINADOR")).andExpect(status().isOk());
+        mockMvc.perform(as(BASE + "/historial?estado=" + state, "COORDINADOR")).andExpect(status().isOk());
 
-        verify(checkins).buscarHistorial(EVENTO, SIN_USUARIO, EstadoCheckin.valueOf(estado), PageRequest.of(0, 20));
+        verify(checkins).buscarHistorial(EVENT, NO_USER, EstadoCheckin.valueOf(state), PageRequest.of(0, 20));
     }
 
     /**
-     * Los roles con ms04:history:read pueden consultar el histórico, también con otros roles a la vez
+     * The roles with ms04:history:read can query the history, also together with other roles
      *
-     * @param rol valor de la cabecera X-User-Role
-     * @throws Exception si falla la petición
+     * @param role value of the X-User-Role header
+     * @throws Exception if the request fails
      */
     @ParameterizedTest
     @ValueSource(strings = { "COORDINADOR", "ORGANIZADOR", "AUDITOR", "BRIGADISTA,COORDINADOR", "AUDITOR,PROFESOR" })
-    void losRolesConElPermisoPuedenConsultarElHistorico(String rol) throws Exception {
-        when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(checkins.buscarHistorial(EVENTO, SIN_USUARIO, SIN_ESTADO, PageRequest.of(0, 20)))
+    void theRolesWithThePermissionCanQueryTheHistory(String role) throws Exception {
+        when(events.existsById(EVENT)).thenReturn(true);
+        when(checkins.buscarHistorial(EVENT, NO_USER, NO_STATE, PageRequest.of(0, 20)))
                 .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 20), 0));
 
-        mockMvc.perform(como(BASE + "/historial", rol)).andExpect(status().isOk());
+        mockMvc.perform(as(BASE + "/historial", role)).andExpect(status().isOk());
     }
 
     /**
-     * Los roles sin ms04:history:read reciben 403, incluido el BRIGADISTA, y no se consulta la base
+     * The roles without ms04:history:read get 403, the brigadier included, and the database is not queried
      *
-     * @param rol valor de la cabecera X-User-Role
-     * @throws Exception si falla la petición
+     * @param role value of the X-User-Role header
+     * @throws Exception if the request fails
      */
     @ParameterizedTest
     @ValueSource(strings = { "ESTUDIANTE", "PROFESOR", "ADMINISTRATIVO", "BRIGADISTA", "ADMIN", "ESTUDIANTE,PROFESOR",
             "BRIGADISTA,PROFESOR" })
-    void losRolesSinElPermisoNoPuedenConsultarElHistorico(String rol) throws Exception {
-        mockMvc.perform(como(BASE + "/historial", rol))
+    void theRolesWithoutThePermissionCannotQueryTheHistory(String role) throws Exception {
+        mockMvc.perform(as(BASE + "/historial", role))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.status").value(403))
                 .andExpect(jsonPath("$.codigo").value("PROHIBIDO"))
                 .andExpect(jsonPath("$.errores", hasSize(0)))
                 .andExpect(jsonPath("$.correlation_id").value(CORRELATION));
 
-        verifyNoInteractions(eventos, checkins);
+        verifyNoInteractions(events, checkins);
     }
 
     /**
-     * Un rol sin permiso recibe 403 antes que el error de la paginación
+     * A role without permission gets 403 before the error of the pagination
      *
-     * @throws Exception si falla la petición
+     * @throws Exception if the request fails
      */
     @Test
-    void elPermisoSeValidaAntesQueLaPaginacion() throws Exception {
-        mockMvc.perform(como(BASE + "/historial?page=-1&size=101", "ESTUDIANTE"))
+    void thePermissionIsCheckedBeforeThePagination() throws Exception {
+        mockMvc.perform(as(BASE + "/historial?page=-1&size=101", "ESTUDIANTE"))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.codigo").value("PROHIBIDO"));
 
-        verifyNoInteractions(eventos, checkins);
+        verifyNoInteractions(events, checkins);
     }
 
     /**
-     * Sin cabeceras de identidad responde 401 NO_AUTENTICADO
+     * Without identity headers it answers 401 NO_AUTENTICADO
      *
-     * @throws Exception si falla la petición
+     * @throws Exception if the request fails
      */
     @Test
-    void historialSinCabecerasDeIdentidadEsNoAutenticado() throws Exception {
+    void historyWithoutIdentityHeadersIsUnauthenticated() throws Exception {
         mockMvc.perform(get(BASE + "/historial").header(CorrelationIds.HEADER, CORRELATION))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.codigo").value("NO_AUTENTICADO"))
                 .andExpect(jsonPath("$.correlation_id").value(CORRELATION));
 
-        verifyNoInteractions(eventos, checkins);
+        verifyNoInteractions(events, checkins);
     }
 
     /**
-     * Una paginación inválida responde 400 con el mensaje del formulario F-04 y sin consultar nada
+     * An invalid pagination answers 400 with the message of form F-04 and queries nothing
      *
-     * @param consulta parámetros de paginación inválidos
-     * @param campo parámetro que se reporta
-     * @param mensaje mensaje del formulario F-04
-     * @throws Exception si falla la petición
+     * @param query invalid pagination parameters
+     * @param field reported parameter
+     * @param message message of form F-04
+     * @throws Exception if the request fails
      */
     @ParameterizedTest
     @CsvSource(delimiter = '|', value = {
@@ -303,24 +305,24 @@ class HistorialHttpTest {
             "size=0|size|Tamaño de página no válido (1 a 100).",
             "size=101|size|Tamaño de página no válido (1 a 100).",
             "size=abc|size|Tamaño de página no válido (1 a 100)." })
-    void historialConPaginacionInvalidaResponde400(String consulta, String campo, String mensaje) throws Exception {
-        mockMvc.perform(como(BASE + "/historial?" + consulta, "COORDINADOR"))
+    void historyWithInvalidPaginationAnswers400(String query, String field, String message) throws Exception {
+        mockMvc.perform(as(BASE + "/historial?" + query, "COORDINADOR"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.codigo").value("VALIDACION"))
-                .andExpect(jsonPath("$.errores[0].campo").value(campo))
-                .andExpect(jsonPath("$.errores[0].mensaje").value(mensaje));
+                .andExpect(jsonPath("$.errores[0].campo").value(field))
+                .andExpect(jsonPath("$.errores[0].mensaje").value(message));
 
-        verifyNoInteractions(eventos, checkins);
+        verifyNoInteractions(events, checkins);
     }
 
     /**
-     * Página y tamaño inválidos a la vez devuelven un error por cada parámetro
+     * Invalid page and size at the same time return one error per parameter
      *
-     * @throws Exception si falla la petición
+     * @throws Exception if the request fails
      */
     @Test
-    void historialConPaginaYTamanoInvalidosDevuelveUnErrorPorParametro() throws Exception {
-        mockMvc.perform(como(BASE + "/historial?page=-1&size=101", "COORDINADOR"))
+    void historyWithInvalidPageAndSizeReturnsOneErrorPerParameter() throws Exception {
+        mockMvc.perform(as(BASE + "/historial?page=-1&size=101", "COORDINADOR"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errores", hasSize(2)))
                 .andExpect(jsonPath("$.errores[0].campo").value("page"))
@@ -328,64 +330,64 @@ class HistorialHttpTest {
     }
 
     /**
-     * Un usuario que no es UUID responde 400 con el mensaje del formulario F-04
+     * A user that is not a UUID answers 400 with the message of form F-04
      *
-     * @throws Exception si falla la petición
+     * @throws Exception if the request fails
      */
     @Test
-    void historialConUnUsuarioInvalidoResponde400() throws Exception {
-        mockMvc.perform(como(BASE + "/historial?usuario_id=no-es-un-uuid", "COORDINADOR"))
+    void historyWithAnInvalidUserAnswers400() throws Exception {
+        mockMvc.perform(as(BASE + "/historial?usuario_id=no-es-un-uuid", "COORDINADOR"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.codigo").value("VALIDACION"))
                 .andExpect(jsonPath("$.errores[0].campo").value("usuario_id"))
                 .andExpect(jsonPath("$.errores[0].mensaje").value("Usuario no válido."));
 
-        verifyNoInteractions(eventos, checkins);
+        verifyNoInteractions(events, checkins);
     }
 
     /**
-     * Un estado fuera del catálogo responde 400 con el mensaje del formulario F-04
+     * A state outside the catalog answers 400 with the message of form F-04
      *
-     * @param estado valor fuera del catálogo
-     * @throws Exception si falla la petición
+     * @param state value outside the catalog
+     * @throws Exception if the request fails
      */
     @ParameterizedTest
     @ValueSource(strings = { "TODOS", "safe", "FINALIZADO", "123" })
-    void historialConUnEstadoInvalidoResponde400(String estado) throws Exception {
-        mockMvc.perform(como(BASE + "/historial?estado=" + estado, "COORDINADOR"))
+    void historyWithAnInvalidStateAnswers400(String state) throws Exception {
+        mockMvc.perform(as(BASE + "/historial?estado=" + state, "COORDINADOR"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.codigo").value("VALIDACION"))
                 .andExpect(jsonPath("$.errores[0].campo").value("estado"))
                 .andExpect(jsonPath("$.errores[0].mensaje").value("Estado no válido."));
 
-        verifyNoInteractions(eventos, checkins);
+        verifyNoInteractions(events, checkins);
     }
 
     /**
-     * Un eventoId que no es UUID responde 400 con el mensaje de RG-03
+     * An event id that is not a UUID answers 400 with the message of RG-03
      *
-     * @throws Exception si falla la petición
+     * @throws Exception if the request fails
      */
     @Test
-    void historialConUnEventoIdInvalidoResponde400() throws Exception {
-        mockMvc.perform(como("/api/v1/chi/eventos/no-es-un-uuid/historial", "COORDINADOR"))
+    void historyWithAnInvalidEventIdAnswers400() throws Exception {
+        mockMvc.perform(as("/api/v1/chi/eventos/no-es-un-uuid/historial", "COORDINADOR"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errores[0].campo").value("eventoId"))
                 .andExpect(jsonPath("$.errores[0].mensaje").value("Evento no válido."));
 
-        verifyNoInteractions(eventos, checkins);
+        verifyNoInteractions(events, checkins);
     }
 
     /**
-     * A3: un evento inexistente responde 404
+     * A3: an unknown event answers 404
      *
-     * @throws Exception si falla la petición
+     * @throws Exception if the request fails
      */
     @Test
-    void historialDeUnEventoInexistenteResponde404() throws Exception {
-        when(eventos.existsById(EVENTO)).thenReturn(false);
+    void historyOfAnUnknownEventAnswers404() throws Exception {
+        when(events.existsById(EVENT)).thenReturn(false);
 
-        mockMvc.perform(como(BASE + "/historial", "COORDINADOR"))
+        mockMvc.perform(as(BASE + "/historial", "COORDINADOR"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.status").value(404))
                 .andExpect(jsonPath("$.codigo").value("NO_ENCONTRADO"))

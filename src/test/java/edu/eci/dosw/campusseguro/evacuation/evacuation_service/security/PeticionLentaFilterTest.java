@@ -24,88 +24,125 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.util.CorrelationI
 import jakarta.servlet.FilterChain;
 
 /**
- * RNF-MS04-01: las peticiones que superan el umbral quedan en el log con su Correlation ID
+ * RNF-MS04-01: the requests that exceed the threshold are logged with their correlation id
  */
 class PeticionLentaFilterTest {
 
     private static final String CORRELATION = "c19b472d-7a2a-4d3b-a12b-abcdef123456";
-    private static final String RUTA = "/api/v1/chi/eventos/7c1d5b2e-4f3a-4e8b-9a61-0d2f8c3b5a17/checkins";
+    private static final String ROUTE = "/api/v1/chi/eventos/7c1d5b2e-4f3a-4e8b-9a61-0d2f8c3b5a17/checkins";
 
     private final AtomicLong nanos = new AtomicLong();
     private final ListAppender<ILoggingEvent> appender = new ListAppender<>();
     private final Logger logger = (Logger) LoggerFactory.getLogger(PeticionLentaFilter.class);
 
+    /**
+     * Captures the log of the filter and sets the correlation id of the request
+     */
     @BeforeEach
-    void capturarLog() {
+    void captureLog() {
         appender.start();
         logger.addAppender(appender);
         MDC.put(CorrelationIds.MDC_KEY, CORRELATION);
     }
 
+    /**
+     * Releases the log and the correlation id
+     */
     @AfterEach
-    void soltarLog() {
+    void releaseLog() {
         logger.detachAppender(appender);
         MDC.clear();
     }
 
-    /** Petición cuyo procesamiento "tarda" los milisegundos indicados en el reloj controlado */
-    private MockHttpServletResponse ejecutar(String uri, long duracionMs, int status) throws Exception {
-        PeticionLentaFilter filtro = new PeticionLentaFilter(5000, nanos::get);
+    /**
+     * Runs a request whose processing takes the given milliseconds on the controlled clock
+     *
+     * @param uri path of the request
+     * @param durationMs duration of the processing
+     * @param status status of the answer
+     * @return the answer
+     * @throws Exception if the filter fails
+     */
+    private MockHttpServletResponse run(String uri, long durationMs, int status) throws Exception {
+        PeticionLentaFilter filter = new PeticionLentaFilter(5000, nanos::get);
         MockHttpServletRequest request = new MockHttpServletRequest("POST", uri);
         MockHttpServletResponse response = new MockHttpServletResponse();
-        FilterChain cadena = (req, res) -> {
-            nanos.addAndGet(TimeUnit.MILLISECONDS.toNanos(duracionMs));
+        FilterChain chain = (req, res) -> {
+            nanos.addAndGet(TimeUnit.MILLISECONDS.toNanos(durationMs));
             response.setStatus(status);
         };
-        filtro.doFilter(request, response, cadena);
+        filter.doFilter(request, response, chain);
         return response;
     }
 
+    /**
+     * A request slower than the threshold is logged with its correlation id
+     *
+     * @throws Exception if the filter fails
+     */
     @Test
-    void unaPeticionMasLentaQueElUmbralQuedaEnElLogConSuCorrelationId() throws Exception {
-        ejecutar(RUTA, 5001, 201);
+    void aRequestSlowerThanTheThresholdIsLogged() throws Exception {
+        run(ROUTE, 5001, 201);
 
         assertEquals(1, appender.list.size());
-        ILoggingEvent evento = appender.list.get(0);
-        assertEquals(Level.WARN, evento.getLevel());
-        assertEquals(CORRELATION, evento.getMDCPropertyMap().get(CorrelationIds.MDC_KEY));
-        assertEquals("Petición lenta: POST " + RUTA + " respondió 201 en 5001 ms (umbral 5000 ms)",
-                evento.getFormattedMessage());
+        ILoggingEvent event = appender.list.get(0);
+        assertEquals(Level.WARN, event.getLevel());
+        assertEquals(CORRELATION, event.getMDCPropertyMap().get(CorrelationIds.MDC_KEY));
+        assertEquals("Petición lenta: POST " + ROUTE + " respondió 201 en 5001 ms (umbral 5000 ms)",
+                event.getFormattedMessage());
     }
 
+    /**
+     * A request within the threshold is not logged
+     *
+     * @throws Exception if the filter fails
+     */
     @Test
-    void unaPeticionDentroDelUmbralNoSeRegistra() throws Exception {
-        ejecutar(RUTA, 5000, 201);
-        ejecutar(RUTA, 120, 200);
+    void aRequestWithinTheThresholdIsNotLogged() throws Exception {
+        run(ROUTE, 5000, 201);
+        run(ROUTE, 120, 200);
 
         assertTrue(appender.list.isEmpty());
     }
 
+    /**
+     * A slow request is also logged when it ends with an exception
+     */
     @Test
-    void tambienSeRegistraSiLaPeticionTerminaConExcepcion() {
-        PeticionLentaFilter filtro = new PeticionLentaFilter(5000, nanos::get);
-        FilterChain cadena = (req, res) -> {
+    void aSlowRequestIsLoggedEvenWhenItFails() {
+        PeticionLentaFilter filter = new PeticionLentaFilter(5000, nanos::get);
+        FilterChain chain = (req, res) -> {
             nanos.addAndGet(TimeUnit.SECONDS.toNanos(7));
             throw new IllegalStateException("fallo");
         };
 
-        assertThrows(IllegalStateException.class, () -> filtro.doFilter(new MockHttpServletRequest("POST", RUTA),
-                new MockHttpServletResponse(), cadena));
+        assertThrows(IllegalStateException.class, () -> filter.doFilter(new MockHttpServletRequest("POST", ROUTE),
+                new MockHttpServletResponse(), chain));
         assertEquals(1, appender.list.size());
     }
 
+    /**
+     * The log line includes neither headers nor body
+     *
+     * @throws Exception if the filter fails
+     */
     @Test
-    void elRegistroNoIncluyeCabecerasNiCuerpo() throws Exception {
-        ejecutar(RUTA, 6000, 201);
+    void theLogIncludesNeitherHeadersNorBody() throws Exception {
+        run(ROUTE, 6000, 201);
 
-        String linea = appender.list.get(0).getFormattedMessage();
-        assertFalse(linea.contains("X-User-Id"));
-        assertFalse(linea.contains("estado"));
+        String line = appender.list.get(0).getFormattedMessage();
+        assertFalse(line.contains("X-User-Id"));
+        assertFalse(line.contains("estado"));
     }
 
+    /**
+     * The health is not measured
+     *
+     * @throws Exception if the filter fails
+     */
     @Test
-    void elHealthNoSeMide() throws Exception {
-        ejecutar("/actuator/health", 9000, 200);
+    void theHealthIsNotMeasured() throws Exception {
+        run("/actuator/health", 9000, 200);
 
         assertTrue(appender.list.isEmpty());
     }

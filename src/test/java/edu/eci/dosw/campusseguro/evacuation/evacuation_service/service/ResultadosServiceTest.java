@@ -5,297 +5,374 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
-import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Import;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.client.PoblacionObjetivoClient;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.PrimerCheckin;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.Resultados;
-import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.SolicitudResultado;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.TotalPorPunto;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.dto.TotalesPorEstado;
-import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.Checkin;
-import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.EstadoCheckin;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.EstadoEnvio;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.EstadoEvento;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.Evento;
-import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.SolicitudAsistencia;
-import edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity.TipoUbicacion;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.exception.ApiException;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.exception.ErrorCode;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.CheckinRepository;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.CheckinRepository.ConteoPorEstado;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.CheckinRepository.ConteoPorPunto;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.CheckinRepository.PrimerCheckinPorUsuario;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.CheckinRepository.SolicitudPorUsuario;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.EventoRepository;
-import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.SolicitudAsistenciaRepository;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.RequesterIdentity;
-import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.PostgresTestcontainerConfig;
-import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.IdentidadesDePrueba;
-import jakarta.persistence.EntityManager;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.TestIdentities;
 
 /**
- * RF-MS04-10 Entregar resultados del evento, contra PostgreSQL real con el esquema de database/. MS01 es un doble:
- * su cliente se prueba en Ms01PoblacionObjetivoClientTest
+ * RF-MS04-10 Deliver the results of the event, with the repositories and the MS01 client replaced by mocks: the
+ * totals by state and by meeting point, the people who asked for assistance, the first check-in of each user, the
+ * target population with its pending people, partial results while the event is not finished and the consistent
+ * read-only transaction
  */
-@DataJpaTest
-@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import({ PostgresTestcontainerConfig.class, ResultadosService.class, ResultadosServiceTest.Reloj.class })
+@ExtendWith(MockitoExtension.class)
 class ResultadosServiceTest {
 
-    private static final Instant AHORA = Instant.parse("2026-11-20T16:00:00Z");
-    private static final Instant INICIO = Instant.parse("2026-11-20T15:00:00Z");
-    private static final UUID PUNTO_A = UUID.fromString("7a1d4e2b-5c3f-4a8e-b9d0-2e6f1c4a7b35");
-    private static final UUID PUNTO_B = UUID.fromString("9b2e5f3c-6d4a-4b9f-80e1-3f7a2d5b8c46");
-    private static final RequesterIdentity ORGANIZADOR = IdentidadesDePrueba.identidad(UUID.fromString("3f6c2a9e-8b1d-4c7a-9e2f-1a5b7c9d0e42"), "ORGANIZADOR");
+    private static final UUID EVENT = UUID.fromString("7c1d5b2e-4f3a-4e8b-9a61-0d2f8c3b5a17");
+    private static final UUID ANA = UUID.fromString("3f6c2a9e-8b1d-4c7a-9e2f-1a5b7c9d0e42");
+    private static final UUID LUIS = UUID.fromString("6c0d2f48-1b3e-4a57-9d8c-2e4f6a8b0c13");
+    private static final UUID SOFIA = UUID.fromString("8e4b6d2f-3a5c-4e7b-9d1f-4c6e8a0b2d35");
+    private static final UUID OUTSIDER = UUID.fromString("1a3c5e7b-9d2f-4b6d-8e0a-5f7b9d1c3e57");
+    private static final UUID POINT = UUID.fromString("7a1d4e2b-5c3f-4a8e-b9d0-2e6f1c4a7b35");
+    private static final Instant START = Instant.parse("2026-11-20T15:00:00Z");
+    private static final Instant CLOSING = Instant.parse("2026-11-20T16:00:00Z");
+    private static final Instant NOW = Instant.parse("2026-11-20T17:00:00Z");
 
-    /** Reloj fijo para el corte de la población objetivo */
-    @TestConfiguration
-    static class Reloj {
-        @Bean
-        Clock clock() {
-            return Clock.fixed(AHORA, ZoneOffset.UTC);
-        }
-    }
+    @Mock
+    private EventoRepository events;
 
-    @Autowired
-    private ResultadosService service;
-
-    @Autowired
-    private EventoRepository eventos;
-
-    @Autowired
+    @Mock
     private CheckinRepository checkins;
 
-    @Autowired
-    private SolicitudAsistenciaRepository solicitudes;
+    @Mock
+    private PoblacionObjetivoClient population;
 
-    @Autowired
-    private EntityManager entityManager;
+    @Mock
+    private PlatformTransactionManager transactionManager;
 
-    @MockitoBean
-    private PoblacionObjetivoClient poblacionObjetivo;
+    private ResultadosService service;
 
-    private Evento evento(EstadoEvento estado) {
-        Evento evento = new Evento(UUID.randomUUID());
-        evento.setNombre("Simulacro de evacuación bloque A");
-        evento.setSimulacro(true);
-        evento.setEstado(estado);
-        evento.setFechaInicio(estado == EstadoEvento.BORRADOR ? null : INICIO);
-        evento.setFechaCierre(estado == EstadoEvento.FINALIZADO ? AHORA : null);
-        evento.setRolesConvocados(List.of("ESTUDIANTE", "PROFESOR"));
-        return eventos.saveAndFlush(evento);
+    private RequesterIdentity coordinator;
+
+    /**
+     * Creates the service with a fixed clock and a coordinator who queries the results
+     */
+    @BeforeEach
+    void setUp() {
+        service = new ResultadosService(events, checkins, population, Clock.fixed(NOW, ZoneOffset.UTC),
+                transactionManager);
+        coordinator = TestIdentities.identity(UUID.randomUUID(), "COORDINADOR");
     }
 
-    private Checkin checkin(Evento evento, UUID usuario, EstadoCheckin estado) {
-        UUID punto = estado == EstadoCheckin.SAFE ? PUNTO_A : null;
-        boolean asistencia = estado == EstadoCheckin.NEEDS_ASSISTANCE;
-        Checkin guardado = checkins.save(new Checkin(evento.getId(), usuario, estado, punto,
-                asistencia ? TipoUbicacion.EDIFICIO : null, asistencia ? UUID.randomUUID() : null));
-        entityManager.flush();
-        return guardado;
+    /**
+     * Drill that convenes students and teachers
+     *
+     * @param state state of the event
+     * @param start start date, or null
+     * @return the event
+     */
+    private static Evento event(EstadoEvento state, Instant start) {
+        Evento event = new Evento(EVENT);
+        event.setSimulacro(true);
+        event.setEstado(state);
+        event.setFechaInicio(start);
+        if (state == EstadoEvento.FINALIZADO) {
+            event.setFechaCierre(CLOSING);
+        }
+        event.setRolesConvocados(List.of("ESTUDIANTE", "PROFESOR"));
+        return event;
     }
 
-    private Checkin safe(Evento evento, UUID usuario, UUID punto) {
-        Checkin guardado = checkins.save(new Checkin(evento.getId(), usuario, EstadoCheckin.SAFE, punto, null, null));
-        entityManager.flush();
-        return guardado;
-    }
+    /**
+     * Row of the count by state
+     *
+     * @param state state of the check-in
+     * @param total number of people
+     * @return the row
+     */
+    private static ConteoPorEstado byState(String state, long total) {
+        return new ConteoPorEstado() {
 
-    private SolicitudAsistencia solicitud(Checkin checkin, EstadoEnvio estado, String idMs05) {
-        SolicitudAsistencia solicitud = new SolicitudAsistencia(checkin.getId(), checkin.getEventoId(),
-                checkin.getUsuarioId(), checkin.getUbicacionTipo(), checkin.getUbicacionId(),
-                checkin.getRegistradoEn());
-        solicitud.setEstadoEnvio(estado);
-        solicitud.setSolicitudMs05Id(idMs05);
-        return solicitudes.saveAndFlush(solicitud);
-    }
-
-    private void poblacion(Set<UUID> usuarios) {
-        when(poblacionObjetivo.usuariosActivosPorRoles(any(), any(), any())).thenReturn(Optional.of(usuarios));
-    }
-
-    @Test
-    void losResultadosDeUnEventoFinalizadoTraenTodosLosDatosYSonFinales() {
-        Evento evento = evento(EstadoEvento.FINALIZADO);
-        UUID ana = UUID.randomUUID();
-        UUID beto = UUID.randomUUID();
-        UUID carla = UUID.randomUUID();
-        UUID pendiente = UUID.randomUUID();
-        poblacion(Set.of(ana, beto, carla, pendiente));
-
-        Checkin pidioAyuda = checkin(evento, ana, EstadoCheckin.NEEDS_ASSISTANCE);
-        solicitud(pidioAyuda, EstadoEnvio.ENVIADA, "SOL-001");
-        safe(evento, ana, PUNTO_A);
-        checkin(evento, beto, EstadoCheckin.EVACUATING);
-        safe(evento, beto, PUNTO_B);
-        checkin(evento, carla, EstadoCheckin.OFF_CAMPUS);
-
-        Resultados r = service.resultados(evento.getId(), ORGANIZADOR);
-
-        assertTrue(r.finales());
-        assertEquals(EstadoEvento.FINALIZADO, r.estadoEvento());
-        assertEquals(INICIO, r.fechaInicio());
-        assertEquals(AHORA, r.fechaCierre());
-        assertEquals(4L, r.poblacionObjetivo());
-        assertEquals(3L, r.totalReportados());
-        assertEquals(1L, r.totalPendientes());
-        assertEquals(new TotalesPorEstado(2, 0, 0, 1), r.totalesPorEstado());
-        assertEquals(Set.of(new TotalPorPunto(PUNTO_A, 1), new TotalPorPunto(PUNTO_B, 1)),
-                Set.copyOf(r.porPuntoEncuentro()));
-        // Ana ya no está en Requiero asistencia, pero lo reportó una vez: aparece con su solicitud
-        assertEquals(1, r.solicitudesAsistencia().size());
-        SolicitudResultado solicitud = r.solicitudesAsistencia().get(0);
-        assertEquals(ana, solicitud.usuarioId());
-        assertEquals("SOL-001", solicitud.solicitudAsistencia().id());
-        assertEquals(EstadoEnvio.ENVIADA, solicitud.solicitudAsistencia().estadoEnvio());
-        // Un primer check-in por usuario, en orden cronológico, con la fecha del primero y no del vigente
-        assertEquals(List.of(ana, beto, carla), r.primerosCheckins().stream().map(PrimerCheckin::usuarioId).toList());
-        assertEquals(pidioAyuda.getRegistradoEn(), r.primerosCheckins().get(0).primerCheckinEn());
-    }
-
-    @Test
-    void losTotalesCoincidenConElConsolidado() {
-        Evento evento = evento(EstadoEvento.EN_EJECUCION);
-        poblacion(Set.of());
-        for (int i = 0; i < 5; i++) {
-            UUID usuario = UUID.randomUUID();
-            checkin(evento, usuario, EstadoCheckin.EVACUATING);
-            if (i % 2 == 0) {
-                safe(evento, usuario, PUNTO_A);
+            /**
+             * @return the state of the row
+             */
+            @Override
+            public String getEstado() {
+                return state;
             }
-        }
 
-        Resultados r = service.resultados(evento.getId(), ORGANIZADOR);
-
-        Map<String, Long> consolidado = checkins.contarVigentesPorEstado(evento.getId()).stream()
-                .collect(Collectors.toMap(CheckinRepository.ConteoPorEstado::getEstado,
-                        CheckinRepository.ConteoPorEstado::getTotal));
-        assertEquals(TotalesPorEstado.de(consolidado), r.totalesPorEstado());
-        assertEquals(new TotalesPorEstado(3, 2, 0, 0), r.totalesPorEstado());
-        assertEquals(5, r.totalReportados());
-        assertEquals(r.totalReportados(), r.primerosCheckins().size());
-        assertEquals(List.of(new TotalPorPunto(PUNTO_A, 3)), r.porPuntoEncuentro());
+            /**
+             * @return the total of the row
+             */
+            @Override
+            public long getTotal() {
+                return total;
+            }
+        };
     }
 
-    @Test
-    void unEventoQueNoEstaFinalizadoEntregaResultadosParciales() {
-        poblacion(Set.of());
-        for (EstadoEvento estado : List.of(EstadoEvento.BORRADOR, EstadoEvento.PROGRAMADO,
-                EstadoEvento.EN_EJECUCION)) {
-            Resultados r = service.resultados(evento(estado).getId(), ORGANIZADOR);
+    /**
+     * Row of the count of safe people by meeting point
+     *
+     * @param point meeting point
+     * @param total number of people
+     * @return the row
+     */
+    private static ConteoPorPunto byPoint(UUID point, long total) {
+        return new ConteoPorPunto() {
 
-            assertFalse(r.finales(), estado.name());
-            assertNull(r.fechaCierre(), estado.name());
-        }
+            /**
+             * @return the meeting point of the row
+             */
+            @Override
+            public UUID getPuntoEncuentroId() {
+                return point;
+            }
+
+            /**
+             * @return the total of the row
+             */
+            @Override
+            public long getTotal() {
+                return total;
+            }
+        };
     }
 
-    @Test
-    void unEventoSinCheckinsTraeLosCuatroEstadosEnCeroYTodaLaPoblacionPendiente() {
-        Evento evento = evento(EstadoEvento.PROGRAMADO);
-        poblacion(Set.of(UUID.randomUUID(), UUID.randomUUID()));
+    /**
+     * Row of a person who asked for assistance
+     *
+     * @param user user of the row
+     * @param requestId id of the request in MS05, or null
+     * @param sendingState sending state, or null without request
+     * @return the row
+     */
+    private static SolicitudPorUsuario requester(UUID user, String requestId, String sendingState) {
+        return new SolicitudPorUsuario() {
 
-        Resultados r = service.resultados(evento.getId(), ORGANIZADOR);
+            /**
+             * @return the user of the row
+             */
+            @Override
+            public UUID getUsuarioId() {
+                return user;
+            }
 
-        assertEquals(new TotalesPorEstado(0, 0, 0, 0), r.totalesPorEstado());
-        assertEquals(0, r.totalReportados());
-        assertEquals(2L, r.totalPendientes());
-        assertTrue(r.porPuntoEncuentro().isEmpty());
-        assertTrue(r.solicitudesAsistencia().isEmpty());
-        assertTrue(r.primerosCheckins().isEmpty());
+            /**
+             * @return the id of the request in MS05
+             */
+            @Override
+            public String getSolicitudId() {
+                return requestId;
+            }
+
+            /**
+             * @return the sending state of the request
+             */
+            @Override
+            public String getEstadoEnvio() {
+                return sendingState;
+            }
+        };
     }
 
-    @Test
-    void siMs01NoEntregaLaPoblacionLosDemasResultadosSeEntregan() {
-        Evento evento = evento(EstadoEvento.FINALIZADO);
-        checkin(evento, UUID.randomUUID(), EstadoCheckin.OFF_CAMPUS);
-        when(poblacionObjetivo.usuariosActivosPorRoles(any(), any(), any())).thenReturn(Optional.empty());
+    /**
+     * Row of the first check-in of a user
+     *
+     * @param user user of the row
+     * @param at date of the first check-in
+     * @return the row
+     */
+    private static PrimerCheckinPorUsuario first(UUID user, String at) {
+        return new PrimerCheckinPorUsuario() {
 
-        Resultados r = service.resultados(evento.getId(), ORGANIZADOR);
+            /**
+             * @return the user of the row
+             */
+            @Override
+            public UUID getUsuarioId() {
+                return user;
+            }
 
-        assertNull(r.poblacionObjetivo());
-        assertNull(r.totalPendientes());
-        assertEquals(1, r.totalReportados());
-        assertEquals(1, r.primerosCheckins().size());
+            /**
+             * @return the date of the first check-in
+             */
+            @Override
+            public Instant getPrimerCheckinEn() {
+                return Instant.parse(at);
+            }
+        };
     }
 
-    @Test
-    void quienReportoSinEstarEnLaPoblacionNoRestaPendientes() {
-        Evento evento = evento(EstadoEvento.EN_EJECUCION);
-        UUID enPoblacion = UUID.randomUUID();
-        poblacion(Set.of(enPoblacion));
-        checkin(evento, UUID.randomUUID(), EstadoCheckin.EVACUATING);
-
-        Resultados r = service.resultados(evento.getId(), ORGANIZADOR);
-
-        assertEquals(1L, r.poblacionObjetivo());
-        assertEquals(1L, r.totalPendientes());
-        assertEquals(1, r.totalReportados());
+    /**
+     * Prepares the event and the rows that the queries return
+     *
+     * @param event stored event
+     */
+    private void stored(Evento event) {
+        when(events.findById(EVENT)).thenReturn(Optional.of(event));
+        when(checkins.contarVigentesPorEstado(EVENT)).thenReturn(List.of(byState("SAFE", 1),
+                byState("NEEDS_ASSISTANCE", 1)));
+        when(checkins.contarSafePorPuntoEncuentro(EVENT)).thenReturn(List.of(byPoint(POINT, 1)));
+        when(checkins.buscarSolicitantesDeAsistencia(EVENT)).thenReturn(List.of(
+                requester(LUIS, "INC-204", "ENVIADA"),
+                requester(ANA, null, null)));
+        when(checkins.buscarPrimerosCheckins(EVENT)).thenReturn(List.of(
+                first(ANA, "2026-11-20T15:02:05Z"),
+                first(LUIS, "2026-11-20T15:04:12Z")));
     }
 
+    /**
+     * The results of a finished event bring every datum and are final
+     */
     @Test
-    void unaSolicitudPendienteDeEnvioApareceSinIdDeMs05() {
-        Evento evento = evento(EstadoEvento.EN_EJECUCION);
-        poblacion(Set.of());
-        UUID usuario = UUID.randomUUID();
-        solicitud(checkin(evento, usuario, EstadoCheckin.NEEDS_ASSISTANCE), EstadoEnvio.PENDIENTE_ENVIO, null);
-        // Un segundo Requiero asistencia no duplica a la persona
-        checkin(evento, usuario, EstadoCheckin.EVACUATING);
-        checkin(evento, usuario, EstadoCheckin.NEEDS_ASSISTANCE);
+    void theResultsOfAFinishedEventAreFinal() {
+        stored(event(EstadoEvento.FINALIZADO, START));
+        when(population.usuariosActivosPorRoles(List.of("ESTUDIANTE", "PROFESOR"), START, coordinator))
+                .thenReturn(Optional.of(Set.of(ANA, LUIS, SOFIA)));
 
-        Resultados r = service.resultados(evento.getId(), ORGANIZADOR);
+        Resultados results = service.resultados(EVENT, coordinator);
 
-        assertEquals(1, r.solicitudesAsistencia().size());
-        assertNull(r.solicitudesAsistencia().get(0).solicitudAsistencia().id());
-        assertEquals(EstadoEnvio.PENDIENTE_ENVIO, r.solicitudesAsistencia().get(0).solicitudAsistencia().estadoEnvio());
+        assertEquals(EVENT, results.eventoId());
+        assertTrue(results.simulacro());
+        assertEquals(EstadoEvento.FINALIZADO, results.estadoEvento());
+        assertEquals(START, results.fechaInicio());
+        assertEquals(CLOSING, results.fechaCierre());
+        assertTrue(results.finales());
+        assertEquals(3L, results.poblacionObjetivo());
+        assertEquals(2, results.totalReportados());
+        assertEquals(1L, results.totalPendientes());
+        assertEquals(new TotalesPorEstado(1, 0, 1, 0), results.totalesPorEstado());
+        assertEquals(List.of(new TotalPorPunto(POINT, 1)), results.porPuntoEncuentro());
+        assertEquals("INC-204", results.solicitudesAsistencia().get(0).solicitudAsistencia().id());
+        assertEquals(EstadoEnvio.ENVIADA, results.solicitudesAsistencia().get(0).solicitudAsistencia().estadoEnvio());
+        assertNull(results.solicitudesAsistencia().get(1).solicitudAsistencia());
+        assertEquals(new PrimerCheckin(ANA, Instant.parse("2026-11-20T15:02:05Z")), results.primerosCheckins().get(0));
     }
 
+    /**
+     * An event that is not finished delivers partial results, and the population is cut at the start of the event
+     */
     @Test
-    void unEventoInexistenteEsNoEncontradoSinConsultarAMs01() {
-        ApiException error = assertThrows(ApiException.class,
-                () -> service.resultados(UUID.randomUUID(), ORGANIZADOR));
+    void anEventThatIsNotFinishedDeliversPartialResults() {
+        stored(event(EstadoEvento.EN_EJECUCION, START));
+        when(population.usuariosActivosPorRoles(List.of("ESTUDIANTE", "PROFESOR"), START, coordinator))
+                .thenReturn(Optional.of(Set.of(ANA, LUIS)));
+
+        Resultados results = service.resultados(EVENT, coordinator);
+
+        assertFalse(results.finales());
+        assertNull(results.fechaCierre());
+        assertEquals(0L, results.totalPendientes());
+    }
+
+    /**
+     * When MS01 does not deliver the population, the population and the pending people are null and the rest is
+     * delivered
+     */
+    @Test
+    void withoutPopulationTheRestIsDelivered() {
+        stored(event(EstadoEvento.FINALIZADO, START));
+        when(population.usuariosActivosPorRoles(List.of("ESTUDIANTE", "PROFESOR"), START, coordinator))
+                .thenReturn(Optional.empty());
+
+        Resultados results = service.resultados(EVENT, coordinator);
+
+        assertNull(results.poblacionObjetivo());
+        assertNull(results.totalPendientes());
+        assertEquals(2, results.totalReportados());
+    }
+
+    /**
+     * An event without check-ins brings the four states in zero and the whole population pending
+     */
+    @Test
+    void anEventWithoutCheckinsHasTheWholePopulationPending() {
+        when(events.findById(EVENT)).thenReturn(Optional.of(event(EstadoEvento.EN_EJECUCION, START)));
+        when(population.usuariosActivosPorRoles(List.of("ESTUDIANTE", "PROFESOR"), START, coordinator))
+                .thenReturn(Optional.of(Set.of(ANA, LUIS)));
+
+        Resultados results = service.resultados(EVENT, coordinator);
+
+        assertEquals(new TotalesPorEstado(0, 0, 0, 0), results.totalesPorEstado());
+        assertEquals(0, results.totalReportados());
+        assertEquals(2L, results.totalPendientes());
+        assertEquals(List.of(), results.porPuntoEncuentro());
+    }
+
+    /**
+     * Who reported without being in the population does not reduce the pending people
+     */
+    @Test
+    void whoReportedOutsideThePopulationDoesNotReduceThePending() {
+        List<PrimerCheckin> firsts = List.of(new PrimerCheckin(OUTSIDER, START), new PrimerCheckin(ANA, START));
+
+        assertEquals(1, ResultadosService.contarPendientes(Set.of(ANA, LUIS), firsts));
+    }
+
+    /**
+     * The population is cut at the moment of the query when the event has not started or has no start date
+     */
+    @Test
+    void theCutIsTheQueryMomentIfTheEventHasNotStarted() {
+        assertEquals(NOW, service.corteDePoblacion(event(EstadoEvento.PROGRAMADO, NOW.plusSeconds(3600))));
+        assertEquals(NOW, service.corteDePoblacion(event(EstadoEvento.BORRADOR, null)));
+        assertEquals(START, service.corteDePoblacion(event(EstadoEvento.EN_EJECUCION, START)));
+    }
+
+    /**
+     * Every query is read inside a single read-only REPEATABLE READ transaction, so the totals match each other
+     */
+    @Test
+    void theQueriesShareAConsistentReadOnlyTransaction() {
+        stored(event(EstadoEvento.FINALIZADO, START));
+        when(population.usuariosActivosPorRoles(List.of("ESTUDIANTE", "PROFESOR"), START, coordinator))
+                .thenReturn(Optional.of(Set.of(ANA)));
+
+        service.resultados(EVENT, coordinator);
+
+        ArgumentCaptor<TransactionDefinition> definition = ArgumentCaptor.forClass(TransactionDefinition.class);
+        verify(transactionManager).getTransaction(definition.capture());
+        assertTrue(definition.getValue().isReadOnly());
+        assertEquals(TransactionDefinition.ISOLATION_REPEATABLE_READ, definition.getValue().getIsolationLevel());
+    }
+
+    /**
+     * An event that MS04 does not know is not found and MS01 is not called
+     */
+    @Test
+    void anUnknownEventIsNotFound() {
+        when(events.findById(EVENT)).thenReturn(Optional.empty());
+
+        ApiException error = assertThrows(ApiException.class, () -> service.resultados(EVENT, coordinator));
 
         assertEquals(ErrorCode.NOT_FOUND, error.getCode());
-        org.mockito.Mockito.verifyNoInteractions(poblacionObjetivo);
-    }
-
-    @Test
-    void laPoblacionSePideConLosRolesConvocadosYElCorteDelInicioDelEvento() {
-        Evento evento = evento(EstadoEvento.EN_EJECUCION);
-        poblacion(Set.of());
-
-        service.resultados(evento.getId(), ORGANIZADOR);
-
-        verify(poblacionObjetivo).usuariosActivosPorRoles(eq(List.of("ESTUDIANTE", "PROFESOR")), eq(INICIO),
-                eq(ORGANIZADOR));
-    }
-
-    @Test
-    void elCorteEsElMomentoDeLaConsultaSiElEventoNoHaEmpezado() {
-        Evento borrador = evento(EstadoEvento.BORRADOR);
-        Evento futuro = evento(EstadoEvento.PROGRAMADO);
-        futuro.setFechaInicio(AHORA.plusSeconds(3600));
-
-        assertEquals(AHORA, service.corteDePoblacion(borrador));
-        assertEquals(AHORA, service.corteDePoblacion(futuro));
-        assertEquals(INICIO, service.corteDePoblacion(evento(EstadoEvento.FINALIZADO)));
+        verifyNoInteractions(population, checkins);
     }
 }

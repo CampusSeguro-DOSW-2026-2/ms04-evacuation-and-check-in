@@ -34,231 +34,231 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.Checki
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.EventoRepository;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.repository.SolicitudAsistenciaRepository;
 import edu.eci.dosw.campusseguro.evacuation.evacuation_service.security.RequesterIdentity;
-import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.IdentidadesDePrueba;
+import edu.eci.dosw.campusseguro.evacuation.evacuation_service.support.TestIdentities;
 
 /**
- * Lógica de RF-MS04-05 (consultar el propio estado vigente) con los repositorios simulados
+ * RF-MS04-05 Query the own current status, with the repositories replaced by mocks
  */
 @ExtendWith(MockitoExtension.class)
 class EstadoPropioServiceTest {
 
-    private static final UUID EVENTO = UUID.fromString("7c1d5b2e-4f3a-4e8b-9a61-0d2f8c3b5a17");
-    private static final UUID USUARIO = UUID.fromString("3f6c2a9e-8b1d-4c7a-9e2f-1a5b7c9d0e42");
-    private static final UUID PUNTO = UUID.fromString("7a1d4e2b-5c3f-4a8e-b9d0-2e6f1c4a7b35");
-    private static final UUID EDIFICIO = UUID.fromString("0b6f3d1a-2c4e-4f58-8a97-5d3e1b7c9a20");
+    private static final UUID EVENT = UUID.fromString("7c1d5b2e-4f3a-4e8b-9a61-0d2f8c3b5a17");
+    private static final UUID USER = UUID.fromString("3f6c2a9e-8b1d-4c7a-9e2f-1a5b7c9d0e42");
+    private static final UUID POINT = UUID.fromString("7a1d4e2b-5c3f-4a8e-b9d0-2e6f1c4a7b35");
+    private static final UUID BUILDING = UUID.fromString("0b6f3d1a-2c4e-4f58-8a97-5d3e1b7c9a20");
     private static final UUID CHECKIN = UUID.fromString("9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d");
-    private static final Instant REGISTRADO = Instant.parse("2026-11-20T15:04:12Z");
+    private static final Instant REGISTERED_AT = Instant.parse("2026-11-20T15:04:12Z");
 
     @Mock
-    private EventoRepository eventos;
+    private EventoRepository events;
 
     @Mock
     private CheckinRepository checkins;
 
     @Mock
-    private SolicitudAsistenciaRepository solicitudes;
+    private SolicitudAsistenciaRepository requests;
 
     private EstadoPropioService service;
 
     private RequesterIdentity requester;
 
     /**
-     * Crea el service con los repositorios simulados y un estudiante como solicitante
+     * Creates the service with the mocked repositories and a student as requester
      */
     @BeforeEach
-    void preparar() {
-        service = new EstadoPropioService(eventos, checkins, solicitudes);
-        requester = IdentidadesDePrueba.identidad(USUARIO, "ESTUDIANTE");
+    void setUp() {
+        service = new EstadoPropioService(events, checkins, requests);
+        requester = TestIdentities.identity(USER, "ESTUDIANTE");
     }
 
     /**
-     * Crea un check-in como lo devuelve la base de datos, con el id y la fecha que asigna ella
+     * Creates a check-in as the database returns it, with the id and the date that it assigns
      *
-     * @param estado estado reportado
-     * @param puntoEncuentro punto de encuentro, solo con SAFE
-     * @param tipo tipo de ubicación, solo con NEEDS_ASSISTANCE
-     * @param ubicacion id de la ubicación, solo con NEEDS_ASSISTANCE
-     * @return el check-in con su id y su fecha de registro
+     * @param state reported state
+     * @param point meeting point, only with SAFE
+     * @param type location type, only with NEEDS_ASSISTANCE
+     * @param location location id, only with NEEDS_ASSISTANCE
+     * @return the check-in with its id and registration date
      */
-    private Checkin checkin(EstadoCheckin estado, UUID puntoEncuentro, TipoUbicacion tipo, UUID ubicacion) {
-        Checkin checkin = new Checkin(EVENTO, USUARIO, estado, puntoEncuentro, tipo, ubicacion);
+    private Checkin checkin(EstadoCheckin state, UUID point, TipoUbicacion type, UUID location) {
+        Checkin checkin = new Checkin(EVENT, USER, state, point, type, location);
         ReflectionTestUtils.setField(checkin, "id", CHECKIN);
-        ReflectionTestUtils.setField(checkin, "registradoEn", REGISTRADO);
+        ReflectionTestUtils.setField(checkin, "registradoEn", REGISTERED_AT);
         return checkin;
     }
 
     /**
-     * Crea la solicitud de asistencia del usuario con el estado de envío y el id de MS05 indicados
+     * Creates the assistance request of the user with the given sending state and MS05 id
      *
-     * @param estadoEnvio estado de envío a MS05
-     * @param idMs05 id de la solicitud en MS05, null si no llegó
-     * @return la solicitud de asistencia
+     * @param sendingState sending state to MS05
+     * @param ms05Id id of the request in MS05, null if it did not arrive
+     * @return the assistance request
      */
-    private SolicitudAsistencia solicitud(EstadoEnvio estadoEnvio, String idMs05) {
-        SolicitudAsistencia solicitud = new SolicitudAsistencia(CHECKIN, EVENTO, USUARIO, TipoUbicacion.EDIFICIO,
-                EDIFICIO, REGISTRADO);
-        solicitud.setEstadoEnvio(estadoEnvio);
-        solicitud.setSolicitudMs05Id(idMs05);
-        return solicitud;
+    private SolicitudAsistencia request(EstadoEnvio sendingState, String ms05Id) {
+        SolicitudAsistencia request = new SolicitudAsistencia(CHECKIN, EVENT, USER, TipoUbicacion.EDIFICIO,
+                BUILDING, REGISTERED_AT);
+        request.setEstadoEnvio(sendingState);
+        request.setSolicitudMs05Id(ms05Id);
+        return request;
     }
 
     /**
-     * Con SAFE responde el punto de encuentro, sin ubicación ni solicitud, y no consulta solicitudes
+     * With SAFE the meeting point is answered, without location nor request, and the requests are not queried
      */
     @Test
-    void conSafeDevuelveElPuntoDeEncuentroSinUbicacionNiSolicitud() {
-        when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(checkins.buscarVigente(EVENTO, USUARIO))
-                .thenReturn(Optional.of(checkin(EstadoCheckin.SAFE, PUNTO, null, null)));
+    void withSafeReturnsTheMeetingPointWithoutLocationNorRequest() {
+        when(events.existsById(EVENT)).thenReturn(true);
+        when(checkins.buscarVigente(EVENT, USER))
+                .thenReturn(Optional.of(checkin(EstadoCheckin.SAFE, POINT, null, null)));
 
-        CheckinResponse respuesta = service.consultar(EVENTO, requester);
+        CheckinResponse answer = service.consultar(EVENT, requester);
 
-        assertEquals(CHECKIN, respuesta.id());
-        assertEquals(EVENTO, respuesta.eventoId());
-        assertEquals(EstadoCheckin.SAFE, respuesta.estado());
-        assertEquals(PUNTO, respuesta.puntoEncuentroId());
-        assertNull(respuesta.ubicacion());
-        assertNull(respuesta.solicitudAsistencia());
-        assertEquals(REGISTRADO, respuesta.fechaHora());
-        verifyNoInteractions(solicitudes);
+        assertEquals(CHECKIN, answer.id());
+        assertEquals(EVENT, answer.eventoId());
+        assertEquals(EstadoCheckin.SAFE, answer.estado());
+        assertEquals(POINT, answer.puntoEncuentroId());
+        assertNull(answer.ubicacion());
+        assertNull(answer.solicitudAsistencia());
+        assertEquals(REGISTERED_AT, answer.fechaHora());
+        verifyNoInteractions(requests);
     }
 
     /**
-     * Con EVACUATING y OFF_CAMPUS no hay punto de encuentro, ubicación ni solicitud
+     * With EVACUATING and OFF_CAMPUS there is no meeting point, location nor request
      *
-     * @param estado estado vigente del usuario
+     * @param state current state of the user
      */
     @ParameterizedTest
     @EnumSource(value = EstadoCheckin.class, names = { "EVACUATING", "OFF_CAMPUS" })
-    void conEvacuatingOOffCampusNoTraePuntoUbicacionNiSolicitud(EstadoCheckin estado) {
-        when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(checkins.buscarVigente(EVENTO, USUARIO)).thenReturn(Optional.of(checkin(estado, null, null, null)));
+    void withEvacuatingOrOffCampusThereIsNoPointLocationNorRequest(EstadoCheckin state) {
+        when(events.existsById(EVENT)).thenReturn(true);
+        when(checkins.buscarVigente(EVENT, USER)).thenReturn(Optional.of(checkin(state, null, null, null)));
 
-        CheckinResponse respuesta = service.consultar(EVENTO, requester);
+        CheckinResponse answer = service.consultar(EVENT, requester);
 
-        assertEquals(estado, respuesta.estado());
-        assertNull(respuesta.puntoEncuentroId());
-        assertNull(respuesta.ubicacion());
-        assertNull(respuesta.solicitudAsistencia());
-        verifyNoInteractions(solicitudes);
+        assertEquals(state, answer.estado());
+        assertNull(answer.puntoEncuentroId());
+        assertNull(answer.ubicacion());
+        assertNull(answer.solicitudAsistencia());
+        verifyNoInteractions(requests);
     }
 
     /**
-     * Con NEEDS_ASSISTANCE responde la ubicación y el estado de la solicitud enviada a MS05
+     * With NEEDS_ASSISTANCE the location and the state of the request sent to MS05 are answered
      */
     @Test
-    void conNeedsAssistanceDevuelveLaUbicacionYLaSolicitudEnviada() {
-        when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(checkins.buscarVigente(EVENTO, USUARIO)).thenReturn(Optional
-                .of(checkin(EstadoCheckin.NEEDS_ASSISTANCE, null, TipoUbicacion.EDIFICIO, EDIFICIO)));
-        when(solicitudes.findByEventoIdAndUsuarioId(EVENTO, USUARIO))
-                .thenReturn(Optional.of(solicitud(EstadoEnvio.ENVIADA, "SOL-2026-0042")));
+    void withNeedsAssistanceReturnsTheLocationAndTheSentRequest() {
+        when(events.existsById(EVENT)).thenReturn(true);
+        when(checkins.buscarVigente(EVENT, USER)).thenReturn(Optional
+                .of(checkin(EstadoCheckin.NEEDS_ASSISTANCE, null, TipoUbicacion.EDIFICIO, BUILDING)));
+        when(requests.findByEventoIdAndUsuarioId(EVENT, USER))
+                .thenReturn(Optional.of(request(EstadoEnvio.ENVIADA, "SOL-2026-0042")));
 
-        CheckinResponse respuesta = service.consultar(EVENTO, requester);
+        CheckinResponse answer = service.consultar(EVENT, requester);
 
-        assertEquals(EstadoCheckin.NEEDS_ASSISTANCE, respuesta.estado());
-        assertNull(respuesta.puntoEncuentroId());
-        assertEquals(TipoUbicacion.EDIFICIO, respuesta.ubicacion().tipo());
-        assertEquals(EDIFICIO, respuesta.ubicacion().id());
-        assertEquals("SOL-2026-0042", respuesta.solicitudAsistencia().id());
-        assertEquals(EstadoEnvio.ENVIADA, respuesta.solicitudAsistencia().estadoEnvio());
+        assertEquals(EstadoCheckin.NEEDS_ASSISTANCE, answer.estado());
+        assertNull(answer.puntoEncuentroId());
+        assertEquals(TipoUbicacion.EDIFICIO, answer.ubicacion().tipo());
+        assertEquals(BUILDING, answer.ubicacion().id());
+        assertEquals("SOL-2026-0042", answer.solicitudAsistencia().id());
+        assertEquals(EstadoEnvio.ENVIADA, answer.solicitudAsistencia().estadoEnvio());
     }
 
     /**
-     * La solicitud pendiente o rechazada todavía no tiene id de MS05
+     * A pending or rejected request has no MS05 id yet
      *
-     * @param estadoEnvio estado de envío de la solicitud
+     * @param sendingState sending state of the request
      */
     @ParameterizedTest
     @EnumSource(value = EstadoEnvio.class, names = { "PENDIENTE_ENVIO", "RECHAZADA" })
-    void laSolicitudQueNoHaLlegadoAMs05NoTraeId(EstadoEnvio estadoEnvio) {
-        when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(checkins.buscarVigente(EVENTO, USUARIO)).thenReturn(Optional
-                .of(checkin(EstadoCheckin.NEEDS_ASSISTANCE, null, TipoUbicacion.ESPACIO, EDIFICIO)));
-        when(solicitudes.findByEventoIdAndUsuarioId(EVENTO, USUARIO))
-                .thenReturn(Optional.of(solicitud(estadoEnvio, null)));
+    void aRequestThatDidNotReachMs05HasNoId(EstadoEnvio sendingState) {
+        when(events.existsById(EVENT)).thenReturn(true);
+        when(checkins.buscarVigente(EVENT, USER)).thenReturn(Optional
+                .of(checkin(EstadoCheckin.NEEDS_ASSISTANCE, null, TipoUbicacion.ESPACIO, BUILDING)));
+        when(requests.findByEventoIdAndUsuarioId(EVENT, USER))
+                .thenReturn(Optional.of(request(sendingState, null)));
 
-        CheckinResponse respuesta = service.consultar(EVENTO, requester);
+        CheckinResponse answer = service.consultar(EVENT, requester);
 
-        assertNull(respuesta.solicitudAsistencia().id());
-        assertEquals(estadoEnvio, respuesta.solicitudAsistencia().estadoEnvio());
+        assertNull(answer.solicitudAsistencia().id());
+        assertEquals(sendingState, answer.solicitudAsistencia().estadoEnvio());
     }
 
     /**
-     * Si el check-in de asistencia no tiene solicitud, responde el estado sin ella
+     * If the assistance check-in has no request, the state is answered without it
      */
     @Test
-    void siFaltaLaSolicitudDelCheckinDeAsistenciaResponderSinElla() {
-        when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(checkins.buscarVigente(EVENTO, USUARIO)).thenReturn(Optional
-                .of(checkin(EstadoCheckin.NEEDS_ASSISTANCE, null, TipoUbicacion.EDIFICIO, EDIFICIO)));
-        when(solicitudes.findByEventoIdAndUsuarioId(EVENTO, USUARIO)).thenReturn(Optional.empty());
+    void withoutTheRequestTheStateIsAnsweredWithoutIt() {
+        when(events.existsById(EVENT)).thenReturn(true);
+        when(checkins.buscarVigente(EVENT, USER)).thenReturn(Optional
+                .of(checkin(EstadoCheckin.NEEDS_ASSISTANCE, null, TipoUbicacion.EDIFICIO, BUILDING)));
+        when(requests.findByEventoIdAndUsuarioId(EVENT, USER)).thenReturn(Optional.empty());
 
-        CheckinResponse respuesta = service.consultar(EVENTO, requester);
+        CheckinResponse answer = service.consultar(EVENT, requester);
 
-        assertEquals(EstadoCheckin.NEEDS_ASSISTANCE, respuesta.estado());
-        assertEquals(EDIFICIO, respuesta.ubicacion().id());
-        assertNull(respuesta.solicitudAsistencia());
+        assertEquals(EstadoCheckin.NEEDS_ASSISTANCE, answer.estado());
+        assertEquals(BUILDING, answer.ubicacion().id());
+        assertNull(answer.solicitudAsistencia());
     }
 
     /**
-     * Un evento inexistente es 404 y no se consultan los check-ins
+     * An unknown event is 404 and the check-ins are not queried
      */
     @Test
-    void unEventoInexistenteEsNoEncontradoYNoConsultaCheckins() {
-        when(eventos.existsById(EVENTO)).thenReturn(false);
+    void anUnknownEventIsNotFoundAndTheCheckinsAreNotQueried() {
+        when(events.existsById(EVENT)).thenReturn(false);
 
-        ApiException error = assertThrows(ApiException.class, () -> service.consultar(EVENTO, requester));
+        ApiException error = assertThrows(ApiException.class, () -> service.consultar(EVENT, requester));
 
         assertEquals(ErrorCode.NOT_FOUND, error.getCode());
         assertEquals("Evento no encontrado.", error.getMessage());
-        verifyNoInteractions(checkins, solicitudes);
+        verifyNoInteractions(checkins, requests);
     }
 
     /**
-     * Sin check-in en el evento es 404 con el mensaje del RF-MS04-05
+     * Without check-in in the event it is 404 with the message of RF-MS04-05
      */
     @Test
-    void sinCheckinEnElEventoEsNoEncontrado() {
-        when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(checkins.buscarVigente(EVENTO, USUARIO)).thenReturn(Optional.empty());
+    void withoutCheckinInTheEventIsNotFound() {
+        when(events.existsById(EVENT)).thenReturn(true);
+        when(checkins.buscarVigente(EVENT, USER)).thenReturn(Optional.empty());
 
-        ApiException error = assertThrows(ApiException.class, () -> service.consultar(EVENTO, requester));
+        ApiException error = assertThrows(ApiException.class, () -> service.consultar(EVENT, requester));
 
         assertEquals(ErrorCode.NOT_FOUND, error.getCode());
         assertEquals("No tiene check-in en este evento.", error.getMessage());
-        verifyNoInteractions(solicitudes);
+        verifyNoInteractions(requests);
     }
 
     /**
-     * La consulta usa únicamente el id de usuario de la identidad del solicitante
+     * The query only uses the user id of the identity of the requester
      */
     @Test
-    void soloConsultaPorElIdDeUsuarioDeLaIdentidad() {
-        UUID otroUsuario = UUID.fromString("5d2e8f10-6a4b-4c93-b7e1-3f9a0c2d4e68");
-        RequesterIdentity otro = IdentidadesDePrueba.identidad(otroUsuario, "PROFESOR");
-        when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(checkins.buscarVigente(EVENTO, otroUsuario)).thenReturn(Optional.empty());
+    void theQueryOnlyUsesTheUserIdOfTheIdentity() {
+        UUID otherUser = UUID.fromString("5d2e8f10-6a4b-4c93-b7e1-3f9a0c2d4e68");
+        RequesterIdentity other = TestIdentities.identity(otherUser, "PROFESOR");
+        when(events.existsById(EVENT)).thenReturn(true);
+        when(checkins.buscarVigente(EVENT, otherUser)).thenReturn(Optional.empty());
 
-        assertThrows(ApiException.class, () -> service.consultar(EVENTO, otro));
+        assertThrows(ApiException.class, () -> service.consultar(EVENT, other));
 
-        verify(checkins).buscarVigente(EVENTO, otroUsuario);
-        verify(checkins, never()).buscarVigente(EVENTO, USUARIO);
+        verify(checkins).buscarVigente(EVENT, otherUser);
+        verify(checkins, never()).buscarVigente(EVENT, USER);
     }
 
     /**
-     * Consultar solo lee: no usa ninguna operación de escritura
+     * The query only reads: it uses no write operation
      */
     @Test
-    void consultarNoModificaNingunDato() {
-        when(eventos.existsById(EVENTO)).thenReturn(true);
-        when(checkins.buscarVigente(EVENTO, USUARIO))
-                .thenReturn(Optional.of(checkin(EstadoCheckin.SAFE, PUNTO, null, null)));
+    void theQueryModifiesNoData() {
+        when(events.existsById(EVENT)).thenReturn(true);
+        when(checkins.buscarVigente(EVENT, USER))
+                .thenReturn(Optional.of(checkin(EstadoCheckin.SAFE, POINT, null, null)));
 
-        service.consultar(EVENTO, requester);
+        service.consultar(EVENT, requester);
 
-        verify(eventos).existsById(EVENTO);
-        verify(checkins).buscarVigente(EVENTO, USUARIO);
-        verifyNoMoreInteractions(eventos, checkins, solicitudes);
+        verify(events).existsById(EVENT);
+        verify(checkins).buscarVigente(EVENT, USER);
+        verifyNoMoreInteractions(events, checkins, requests);
     }
 }

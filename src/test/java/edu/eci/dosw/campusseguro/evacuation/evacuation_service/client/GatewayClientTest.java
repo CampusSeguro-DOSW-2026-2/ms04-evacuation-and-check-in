@@ -34,265 +34,275 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.util.CorrelationI
 import tools.jackson.databind.JsonNode;
 
 /**
- * El cliente del Gateway llama con la clave de servicio, la correlación y la identidad del usuario (Estándares,
- * sección 5) y convierte cualquier fallo en 503 DEPENDENCIA_NO_DISPONIBLE sin reenviar el cuerpo de error del otro
- * servicio. Se prueba contra un servidor HTTP real
+ * The Gateway client calls with the service key, the correlation and the identity of the user (standards, section 5)
+ * and turns any failure into 503 DEPENDENCIA_NO_DISPONIBLE without forwarding the error body of the other service.
+ * It is tested against a real HTTP server
  */
 class GatewayClientTest {
 
     private static final String CORRELATION = "c19b472d-7a2a-4d3b-a12b-abcdef123456";
-    private static final String CLAVE = "clave-de-servicio-de-ms04-con-mas-de-32-caracteres";
-    private static final UUID USUARIO = UUID.fromString("6c0d2f48-1b3e-4a57-9d8c-2e4f6a8b0c13");
-    private static final String PERMISOS = "ms04:checkin:write,ms04:dashboard:read";
-
-    /** Lo que recibió el servidor de prueba */
-    private record Recibido(String metodo, String ruta, Map<String, List<String>> cabeceras, String cuerpo) {
-    }
-
-    private HttpServer servidor;
-    private final BlockingQueue<Recibido> recibidos = new LinkedBlockingQueue<>();
-    private volatile int estado = 200;
-    private volatile String respuesta = "{\"ok\":true}";
-    private volatile long retardoMs = 0;
+    private static final String KEY = "clave-de-servicio-de-ms04-con-mas-de-32-caracteres";
+    private static final UUID USER = UUID.fromString("6c0d2f48-1b3e-4a57-9d8c-2e4f6a8b0c13");
+    private static final String PERMISSIONS = "ms04:checkin:write,ms04:dashboard:read";
 
     /**
-     * Arranca el servidor que hace de Gateway y fija la correlación de la petición en curso
+     * What the test server received
      *
-     * @throws IOException si no se puede abrir el puerto
+     * @param method HTTP method
+     * @param path path of the request
+     * @param headers headers of the request
+     * @param body body of the request
+     */
+    private record Received(String method, String path, Map<String, List<String>> headers, String body) {
+    }
+
+    private HttpServer server;
+    private final BlockingQueue<Received> received = new LinkedBlockingQueue<>();
+    private volatile int status = 200;
+    private volatile String answer = "{\"ok\":true}";
+    private volatile long delayMs = 0;
+
+    /**
+     * Starts the server that plays the role of the Gateway and sets the correlation of the request in progress
+     *
+     * @throws IOException if the port cannot be opened
      */
     @BeforeEach
-    void arrancarGatewaySimulado() throws IOException {
-        servidor = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        servidor.createContext("/", exchange -> {
-            String cuerpo = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
-            recibidos.add(new Recibido(exchange.getRequestMethod(), exchange.getRequestURI().getPath(),
-                    exchange.getRequestHeaders(), cuerpo));
-            if (retardoMs > 0) {
+    void startGateway() throws IOException {
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> {
+            String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+            received.add(new Received(exchange.getRequestMethod(), exchange.getRequestURI().getPath(),
+                    exchange.getRequestHeaders(), body));
+            if (delayMs > 0) {
                 try {
-                    Thread.sleep(retardoMs);
+                    Thread.sleep(delayMs);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 }
             }
-            byte[] bytes = respuesta.getBytes(StandardCharsets.UTF_8);
+            byte[] bytes = answer.getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "application/json");
-            exchange.sendResponseHeaders(estado, bytes.length);
+            exchange.sendResponseHeaders(status, bytes.length);
             exchange.getResponseBody().write(bytes);
             exchange.close();
         });
-        servidor.start();
+        server.start();
         MDC.put(CorrelationIds.MDC_KEY, CORRELATION);
     }
 
     /**
-     * Detiene el servidor y limpia la correlación
+     * Stops the server and clears the correlation
      */
     @AfterEach
-    void detenerGatewaySimulado() {
-        servidor.stop(0);
+    void stopGateway() {
+        server.stop(0);
         MDC.remove(CorrelationIds.MDC_KEY);
     }
 
     /**
-     * Cliente apuntando al servidor de prueba
+     * Client pointing to the test server
      *
-     * @param clave clave de servicio, puede ser null
-     * @param timeoutMs timeout de cada llamada
-     * @return el cliente del Gateway
+     * @param key service key, may be null
+     * @param timeoutMs timeout of each call
+     * @return the Gateway client
      */
-    private GatewayClient cliente(String clave, long timeoutMs) {
-        HttpClient http = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
-                .connectTimeout(Duration.ofMillis(timeoutMs)).build();
-        return new GatewayClient(http, "http://127.0.0.1:" + servidor.getAddress().getPort(), clave,
+    private GatewayClient client(String key, long timeoutMs) {
+        HttpClient http = HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
+                .connectTimeout(Duration.ofMillis(timeoutMs))
+                .build();
+        return new GatewayClient(http, "http://127.0.0.1:" + server.getAddress().getPort(), key,
                 Duration.ofMillis(timeoutMs));
     }
 
     /**
-     * GET envía la clave de servicio, la correlación y la identidad del usuario sin modificarla
+     * GET sends the service key, the correlation and the identity of the user without changing it
      *
-     * @throws InterruptedException si se interrumpe la espera de la petición
+     * @throws InterruptedException if the wait for the request is interrupted
      */
     @Test
-    void getEnviaLaClaveLaCorrelacionYLaIdentidadDelUsuario() throws InterruptedException {
-        JsonNode cuerpo = cliente(CLAVE, 2000).get("/api/v1/panel/zones", USUARIO, "BRIGADISTA,ESTUDIANTE", PERMISOS);
+    void getSendsTheKeyTheCorrelationAndTheIdentity() throws InterruptedException {
+        JsonNode body = client(KEY, 2000).get("/api/v1/panel/zones", USER, "BRIGADISTA,ESTUDIANTE", PERMISSIONS);
 
-        Recibido recibido = recibidos.poll(2, TimeUnit.SECONDS);
-        assertEquals("GET", recibido.metodo());
-        assertEquals("/api/v1/panel/zones", recibido.ruta());
-        assertEquals(CLAVE, recibido.cabeceras().get("X-service-key").get(0));
-        assertEquals(CORRELATION, recibido.cabeceras().get("X-correlation-id").get(0));
-        assertEquals(USUARIO.toString(), recibido.cabeceras().get("X-user-id").get(0));
-        assertEquals("BRIGADISTA,ESTUDIANTE", recibido.cabeceras().get("X-user-role").get(0));
-        assertEquals(PERMISOS, recibido.cabeceras().get("X-user-permission").get(0));
-        assertTrue(cuerpo.path("ok").asBoolean());
+        Received request = received.poll(2, TimeUnit.SECONDS);
+        assertEquals("GET", request.method());
+        assertEquals("/api/v1/panel/zones", request.path());
+        assertEquals(KEY, request.headers().get("X-service-key").get(0));
+        assertEquals(CORRELATION, request.headers().get("X-correlation-id").get(0));
+        assertEquals(USER.toString(), request.headers().get("X-user-id").get(0));
+        assertEquals("BRIGADISTA,ESTUDIANTE", request.headers().get("X-user-role").get(0));
+        assertEquals(PERMISSIONS, request.headers().get("X-user-permission").get(0));
+        assertTrue(body.path("ok").asBoolean());
     }
 
     /**
-     * GET sin usuario no envía las cabeceras de identidad
+     * GET without user sends no identity header
      *
-     * @throws InterruptedException si se interrumpe la espera de la petición
+     * @throws InterruptedException if the wait for the request is interrupted
      */
     @Test
-    void getSinUsuarioNoEnviaLasCabecerasDeIdentidad() throws InterruptedException {
-        cliente(CLAVE, 2000).get("/api/v1/panel/zones", null, null, null);
+    void getWithoutUserSendsNoIdentityHeaders() throws InterruptedException {
+        client(KEY, 2000).get("/api/v1/panel/zones", null, null, null);
 
-        Recibido recibido = recibidos.poll(2, TimeUnit.SECONDS);
-        assertNull(recibido.cabeceras().get("X-user-id"));
-        assertNull(recibido.cabeceras().get("X-user-role"));
-        assertNull(recibido.cabeceras().get("X-user-permission"));
+        Received request = received.poll(2, TimeUnit.SECONDS);
+        assertNull(request.headers().get("X-user-id"));
+        assertNull(request.headers().get("X-user-role"));
+        assertNull(request.headers().get("X-user-permission"));
     }
 
     /**
-     * Sin los permisos no se propaga ninguna cabecera de identidad: el Gateway exige las tres juntas (RF-GW-08)
+     * Without the permissions no identity header is propagated: the Gateway requires the three together (RF-GW-08)
      *
-     * @throws InterruptedException si se interrumpe la espera de la petición
+     * @throws InterruptedException if the wait for the request is interrupted
      */
     @Test
-    void getSinPermisosNoPropagaIdentidadIncompleta() throws InterruptedException {
-        cliente(CLAVE, 2000).get("/api/v1/panel/zones", USUARIO, "BRIGADISTA", null);
+    void getWithoutPermissionsPropagatesNoIncompleteIdentity() throws InterruptedException {
+        client(KEY, 2000).get("/api/v1/panel/zones", USER, "BRIGADISTA", null);
 
-        Recibido recibido = recibidos.poll(2, TimeUnit.SECONDS);
-        assertNull(recibido.cabeceras().get("X-user-id"));
-        assertNull(recibido.cabeceras().get("X-user-role"));
-        assertNull(recibido.cabeceras().get("X-user-permission"));
+        Received request = received.poll(2, TimeUnit.SECONDS);
+        assertNull(request.headers().get("X-user-id"));
+        assertNull(request.headers().get("X-user-role"));
+        assertNull(request.headers().get("X-user-permission"));
     }
 
     /**
-     * POST envía el cuerpo JSON como ruta interna: con clave de servicio y sin identidad de usuario
+     * POST sends the JSON body as an internal route: with service key and without user identity
      *
-     * @throws InterruptedException si se interrumpe la espera de la petición
+     * @throws InterruptedException if the wait for the request is interrupted
      */
     @Test
-    void postEnviaElCuerpoJsonComoRutaInterna() throws InterruptedException {
-        respuesta = "{\"usuarios\":[],\"no_encontrados\":[]}";
+    void postSendsTheJsonBodyAsAnInternalRoute() throws InterruptedException {
+        answer = "{\"usuarios\":[],\"no_encontrados\":[]}";
 
-        JsonNode cuerpo = cliente(CLAVE, 2000).post("/api/v1/users/batch", "{\"ids\":[\"a\"]}");
+        JsonNode body = client(KEY, 2000).post("/api/v1/users/batch", "{\"ids\":[\"a\"]}");
 
-        Recibido recibido = recibidos.poll(2, TimeUnit.SECONDS);
-        assertEquals("POST", recibido.metodo());
-        assertEquals("/api/v1/users/batch", recibido.ruta());
-        assertEquals("{\"ids\":[\"a\"]}", recibido.cuerpo());
-        assertEquals("application/json", recibido.cabeceras().get("Content-type").get(0));
-        assertEquals(CLAVE, recibido.cabeceras().get("X-service-key").get(0));
-        assertNull(recibido.cabeceras().get("X-user-id"));
-        assertTrue(cuerpo.path("usuarios").isArray());
+        Received request = received.poll(2, TimeUnit.SECONDS);
+        assertEquals("POST", request.method());
+        assertEquals("/api/v1/users/batch", request.path());
+        assertEquals("{\"ids\":[\"a\"]}", request.body());
+        assertEquals("application/json", request.headers().get("Content-type").get(0));
+        assertEquals(KEY, request.headers().get("X-service-key").get(0));
+        assertNull(request.headers().get("X-user-id"));
+        assertTrue(body.path("usuarios").isArray());
     }
 
     /**
-     * Sin clave de servicio ni correlación en el log, esas cabeceras no se envían
+     * Without service key nor correlation in the log, those headers are not sent
      *
-     * @throws InterruptedException si se interrumpe la espera de la petición
+     * @throws InterruptedException if the wait for the request is interrupted
      */
     @Test
-    void sinClaveNiCorrelacionNoEnviaEsasCabeceras() throws InterruptedException {
+    void withoutKeyNorCorrelationThoseHeadersAreNotSent() throws InterruptedException {
         MDC.remove(CorrelationIds.MDC_KEY);
 
-        cliente(null, 2000).get("/api/v1/panel/zones", null, null, null);
+        client(null, 2000).get("/api/v1/panel/zones", null, null, null);
 
-        Recibido recibido = recibidos.poll(2, TimeUnit.SECONDS);
-        assertNull(recibido.cabeceras().get("X-service-key"));
-        assertNull(recibido.cabeceras().get("X-correlation-id"));
+        Received request = received.poll(2, TimeUnit.SECONDS);
+        assertNull(request.headers().get("X-service-key"));
+        assertNull(request.headers().get("X-correlation-id"));
     }
 
     /**
-     * Una respuesta que no es 2xx se informa como 503 con el mensaje estándar, sin reenviar el cuerpo del otro
-     * servicio
+     * An answer that is not 2xx is reported as 503 with the standard message, without forwarding the body of the
+     * other service
      *
-     * @param codigo estado HTTP que responde el otro servicio
+     * @param code HTTP status that the other service answers
      */
     @ParameterizedTest
     @ValueSource(ints = { 400, 401, 403, 404, 500, 503 })
-    void unaRespuestaQueNoEs2xxSeInformaComo503SinReenviarElCuerpo(int codigo) {
-        estado = codigo;
-        respuesta = "{\"mensaje\":\"detalle interno del otro servicio\"}";
+    void anAnswerThatIsNot2xxIsReportedAs503(int code) {
+        status = code;
+        answer = "{\"mensaje\":\"detalle interno del otro servicio\"}";
 
         ApiException error = assertThrows(ApiException.class,
-                () -> cliente(CLAVE, 2000).get("/api/v1/panel/zones", USUARIO, "BRIGADISTA", PERMISOS));
+                () -> client(KEY, 2000).get("/api/v1/panel/zones", USER, "BRIGADISTA", PERMISSIONS));
 
         assertEquals(ErrorCode.DEPENDENCY_UNAVAILABLE, error.getCode());
         assertEquals(ErrorCode.DEPENDENCY_UNAVAILABLE.getMessage(), error.getMessage());
     }
 
     /**
-     * Un cuerpo que no es JSON se informa como 503
+     * A body that is not JSON is reported as 503
      */
     @Test
-    void unCuerpoQueNoEsJsonSeInformaComo503() {
-        respuesta = "esto no es json {";
+    void aBodyThatIsNotJsonIsReportedAs503() {
+        answer = "esto no es json {";
 
         ApiException error = assertThrows(ApiException.class,
-                () -> cliente(CLAVE, 2000).post("/api/v1/users/batch", "{}"));
+                () -> client(KEY, 2000).post("/api/v1/users/batch", "{}"));
 
         assertEquals(ErrorCode.DEPENDENCY_UNAVAILABLE, error.getCode());
     }
 
     /**
-     * Superar el timeout de cliente se informa como 503
+     * Exceeding the client timeout is reported as 503
      */
     @Test
-    void superarElTimeoutSeInformaComo503() {
-        retardoMs = 1500;
+    void exceedingTheTimeoutIsReportedAs503() {
+        delayMs = 1500;
 
         ApiException error = assertThrows(ApiException.class,
-                () -> cliente(CLAVE, 300).get("/api/v1/panel/zones", USUARIO, "BRIGADISTA", PERMISOS));
+                () -> client(KEY, 300).get("/api/v1/panel/zones", USER, "BRIGADISTA", PERMISSIONS));
 
         assertEquals(ErrorCode.DEPENDENCY_UNAVAILABLE, error.getCode());
     }
 
     /**
-     * Un Gateway caído se informa como 503
+     * A Gateway that is down is reported as 503
      */
     @Test
-    void unGatewayCaidoSeInformaComo503() {
-        GatewayClient cliente = cliente(CLAVE, 500);
-        servidor.stop(0);
+    void aGatewayDownIsReportedAs503() {
+        GatewayClient client = client(KEY, 500);
+        server.stop(0);
 
         ApiException error = assertThrows(ApiException.class,
-                () -> cliente.get("/api/v1/panel/zones", USUARIO, "BRIGADISTA", PERMISOS));
+                () -> client.get("/api/v1/panel/zones", USER, "BRIGADISTA", PERMISSIONS));
 
         assertEquals(ErrorCode.DEPENDENCY_UNAVAILABLE, error.getCode());
     }
 
     /**
-     * Sin URL del Gateway no se llama a nadie y se informa 503
+     * Without URL of the Gateway nobody is called and 503 is reported
      *
-     * @param url URL vacía o en blanco
+     * @param url empty or blank URL
      */
     @ParameterizedTest
     @NullAndEmptySource
     @ValueSource(strings = { "   " })
-    void sinUrlDelGatewayNoLlamaYResponde503(String url) {
+    void withoutGatewayUrlNobodyIsCalled(String url) {
         HttpClient http = HttpClient.newHttpClient();
-        GatewayClient cliente = new GatewayClient(http, url, CLAVE, Duration.ofMillis(500));
+        GatewayClient client = new GatewayClient(http, url, KEY, Duration.ofMillis(500));
 
-        ApiException error = assertThrows(ApiException.class, () -> cliente.post("/api/v1/users/batch", "{}"));
+        ApiException error = assertThrows(ApiException.class, () -> client.post("/api/v1/users/batch", "{}"));
 
         assertEquals(ErrorCode.DEPENDENCY_UNAVAILABLE, error.getCode());
-        assertTrue(recibidos.isEmpty());
+        assertTrue(received.isEmpty());
     }
 
     /**
-     * Una URL del Gateway que no es válida se informa como 503
+     * An invalid URL of the Gateway is reported as 503
      */
     @Test
-    void unaUrlInvalidaSeInformaComo503() {
-        GatewayClient cliente = new GatewayClient(HttpClient.newHttpClient(), "http://host con espacios", CLAVE,
+    void anInvalidUrlIsReportedAs503() {
+        GatewayClient client = new GatewayClient(HttpClient.newHttpClient(), "http://host con espacios", KEY,
                 Duration.ofMillis(500));
 
-        ApiException error = assertThrows(ApiException.class, () -> cliente.get("/api/v1/panel/zones", null, null, null));
+        ApiException error = assertThrows(ApiException.class,
+                () -> client.get("/api/v1/panel/zones", null, null, null));
 
         assertEquals(ErrorCode.DEPENDENCY_UNAVAILABLE, error.getCode());
     }
 
     /**
-     * Un hilo interrumpido se informa como 503 y conserva la marca de interrupción
+     * An interrupted thread is reported as 503 and keeps the interruption flag
      */
     @Test
-    void unHiloInterrumpidoSeInformaComo503YConservaLaInterrupcion() {
+    void anInterruptedThreadIsReportedAs503AndKeepsTheFlag() {
         Thread.currentThread().interrupt();
         try {
             ApiException error = assertThrows(ApiException.class,
-                    () -> cliente(CLAVE, 2000).get("/api/v1/panel/zones", null, null, null));
+                    () -> client(KEY, 2000).get("/api/v1/panel/zones", null, null, null));
 
             assertEquals(ErrorCode.DEPENDENCY_UNAVAILABLE, error.getCode());
             assertTrue(Thread.currentThread().isInterrupted());

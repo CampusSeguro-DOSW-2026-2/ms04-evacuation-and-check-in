@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 
 import java.io.IOException;
 import java.io.OutputStream;
-import java.lang.reflect.Field;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -15,6 +14,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpServer;
@@ -26,196 +26,253 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Cliente de MS05 contra un servidor HTTP local que hace de Gateway. La solicitud de asistencia se registra con el
- * endpoint de incidentes que MS05 ya publica; estas pruebas fijan lo que MS04 envía y cómo interpreta cada respuesta
+ * MS05 client against a local HTTP server that plays the role of the Gateway. The assistance request is registered
+ * with the incidents endpoint that MS05 publishes; these tests fix what MS04 sends and how it reads each answer
  */
 class Ms05SolicitudAsistenciaClientTest {
 
-    private static final String RUTA = "/api/v1/incidentes/eventos/{eventoId}";
-    private static final UUID SOLICITUD = UUID.fromString("9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d");
+    private static final String ROUTE = "/api/v1/incidentes/eventos/{eventoId}";
+    private static final UUID REQUEST = UUID.fromString("9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d");
     private static final UUID CHECKIN = UUID.fromString("8b2c3d4e-5f6a-4b7c-9d8e-1f2a3b4c5d6e");
-    private static final UUID EVENTO = UUID.fromString("7c3d4e5f-6a7b-4c8d-8e9f-2a3b4c5d6e7f");
-    private static final UUID USUARIO = UUID.fromString("3f6c2a9e-8b1d-4c7a-9e2f-1a5b7c9d0e42");
-    private static final String PERMISOS = "ms04:assistance:request,ms04:checkin:write";
-    private static final UUID EDIFICIO = UUID.fromString("5d4c3b2a-1f0e-4d9c-8b7a-6f5e4d3c2b1a");
+    private static final UUID EVENT = UUID.fromString("7c3d4e5f-6a7b-4c8d-8e9f-2a3b4c5d6e7f");
+    private static final UUID USER = UUID.fromString("3f6c2a9e-8b1d-4c7a-9e2f-1a5b7c9d0e42");
+    private static final String PERMISSIONS = "ms04:assistance:request,ms04:checkin:write";
+    private static final UUID BUILDING = UUID.fromString("5d4c3b2a-1f0e-4d9c-8b7a-6f5e4d3c2b1a");
 
-    private HttpServer servidor;
-    private final AtomicReference<String> metodo = new AtomicReference<>();
-    private final AtomicReference<String> ruta = new AtomicReference<>();
-    private final AtomicReference<Headers> cabeceras = new AtomicReference<>();
-    private final AtomicReference<String> cuerpoRecibido = new AtomicReference<>();
+    private HttpServer server;
+    private final AtomicReference<String> method = new AtomicReference<>();
+    private final AtomicReference<String> path = new AtomicReference<>();
+    private final AtomicReference<Headers> headers = new AtomicReference<>();
+    private final AtomicReference<String> receivedBody = new AtomicReference<>();
     private volatile int status;
-    private volatile String cuerpo;
-    private volatile long demoraMs;
+    private volatile String body;
+    private volatile long delayMs;
 
+    /**
+     * Starts the local server that answers with the configured status, body and delay
+     *
+     * @throws IOException if the server cannot start
+     */
     @BeforeEach
-    void iniciar() throws IOException {
-        servidor = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        servidor.createContext("/", exchange -> {
-            metodo.set(exchange.getRequestMethod());
-            ruta.set(exchange.getRequestURI().getPath());
-            cabeceras.set(exchange.getRequestHeaders());
-            cuerpoRecibido.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+    void start() throws IOException {
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> {
+            method.set(exchange.getRequestMethod());
+            path.set(exchange.getRequestURI().getPath());
+            headers.set(exchange.getRequestHeaders());
+            receivedBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             try {
-                Thread.sleep(demoraMs);
+                Thread.sleep(delayMs);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
-            byte[] bytes = cuerpo == null ? new byte[0] : cuerpo.getBytes(StandardCharsets.UTF_8);
+            byte[] bytes = new byte[0];
+            if (body != null) {
+                bytes = body.getBytes(StandardCharsets.UTF_8);
+            }
             exchange.getResponseHeaders().set("Content-Type", "application/json");
-            exchange.sendResponseHeaders(status, bytes.length == 0 ? -1 : bytes.length);
-            if (bytes.length > 0) {
+            if (bytes.length == 0) {
+                exchange.sendResponseHeaders(status, -1);
+            } else {
+                exchange.sendResponseHeaders(status, bytes.length);
                 try (OutputStream out = exchange.getResponseBody()) {
                     out.write(bytes);
                 }
             }
             exchange.close();
         });
-        servidor.start();
-    }
-
-    @AfterEach
-    void detener() {
-        servidor.stop(0);
-    }
-
-    private Ms05SolicitudAsistenciaClient cliente(long timeoutMs) {
-        return new Ms05SolicitudAsistenciaClient("http://127.0.0.1:" + servidor.getAddress().getPort() + "/",
-                "clave-ms04", timeoutMs, RUTA, 1);
-    }
-
-    private void responder(int status, String cuerpo) {
-        this.status = status;
-        this.cuerpo = cuerpo;
-    }
-
-    /** Solicitud como la deja la base de datos: el id lo genera Hibernate al guardarla */
-    private static SolicitudAsistencia solicitud() throws ReflectiveOperationException {
-        SolicitudAsistencia s = new SolicitudAsistencia(CHECKIN, EVENTO, USUARIO, TipoUbicacion.EDIFICIO, EDIFICIO,
-                Instant.parse("2026-11-08T15:00:00Z"));
-        Field id = SolicitudAsistencia.class.getDeclaredField("id");
-        id.setAccessible(true);
-        id.set(s, SOLICITUD);
-        return s;
-    }
-
-    @Test
-    void unaSolicitudCreadaDevuelveElIdDeMs05YLaPeticionSigueElEstandar() throws Exception {
-        responder(201, "{\"idIncidente\":\"SOL-123\",\"estado\":\"REPORTADA\"}");
-
-        ResultadoEnvioMs05 resultado = cliente(2000).enviar(solicitud(), "ESTUDIANTE", PERMISOS, "corr-1");
-
-        assertEquals(ResultadoEnvioMs05.creada("SOL-123"), resultado);
-        assertEquals("POST", metodo.get());
-        assertEquals("/api/v1/incidentes/eventos/" + EVENTO, ruta.get());
-        Headers h = cabeceras.get();
-        assertEquals("clave-ms04", h.getFirst("X-Service-Key"));
-        assertEquals("corr-1", h.getFirst("X-Correlation-ID"));
-        assertEquals(USUARIO.toString(), h.getFirst("X-User-Id"));
-        assertEquals("ESTUDIANTE", h.getFirst("X-User-Role"));
-        assertEquals(PERMISOS, h.getFirst("X-User-Permission"));
-    }
-
-    @Test
-    void elCuerpoEsUnIncidenteConLaPrioridadLaUbicacionYElCheckInDeOrigen() throws Exception {
-        responder(200, "{\"idIncidente\":\"SOL-123\"}");
-
-        cliente(2000).enviar(solicitud(), "ESTUDIANTE", PERMISOS, "corr-1");
-
-        JsonNode cuerpo = JsonMapper.builder().build().readTree(cuerpoRecibido.get());
-        assertEquals(1, cuerpo.get("prioridadId").asInt());
-        assertEquals(EDIFICIO.toString(), cuerpo.get("ubicacionId").asString());
-        assertEquals("EDIFICIO", cuerpo.get("tipoUbicacion").asString());
-        assertEquals("Solicitud de asistencia generada por el check-in " + CHECKIN,
-                cuerpo.get("descripcion").asString());
-        assertEquals(4, cuerpo.size());
-    }
-
-    @Test
-    void elCuerpoViajaConContentLengthYNoEnBloques() throws Exception {
-        responder(201, "{\"idIncidente\":\"SOL-123\"}");
-
-        cliente(2000).enviar(solicitud(), "ESTUDIANTE", PERMISOS, "corr-1");
-
-        Headers h = cabeceras.get();
-        assertNull(h.getFirst("Transfer-Encoding"));
-        assertEquals(String.valueOf(cuerpoRecibido.get().getBytes(StandardCharsets.UTF_8).length),
-                h.getFirst("Content-Length"));
-        assertEquals("application/json", h.getFirst("Content-Type"));
+        server.start();
     }
 
     /**
-     * Sin roles o sin permisos no se propaga identidad: el Gateway responde 400 si llega X-User-Id sin X-User-Role y
-     * X-User-Permission (RF-GW-08). Es el caso de una solicitud anterior a que se guardara la identidad con ella
+     * Stops the local server
+     */
+    @AfterEach
+    void stop() {
+        server.stop(0);
+    }
+
+    /**
+     * Client pointing to the local server
+     *
+     * @param timeoutMs client timeout
+     * @return the client
+     */
+    private Ms05SolicitudAsistenciaClient client(long timeoutMs) {
+        return new Ms05SolicitudAsistenciaClient("http://127.0.0.1:" + server.getAddress().getPort() + "/",
+                "clave-ms04", timeoutMs, ROUTE, 1);
+    }
+
+    /**
+     * Sets the answer of the local server
+     *
+     * @param status status of the answer
+     * @param body body of the answer, or null
+     */
+    private void answer(int status, String body) {
+        this.status = status;
+        this.body = body;
+    }
+
+    /**
+     * Request as the database leaves it: the id is generated by Hibernate when it is saved
+     *
+     * @return the request with its id
+     */
+    private static SolicitudAsistencia request() {
+        SolicitudAsistencia request = new SolicitudAsistencia(CHECKIN, EVENT, USER, TipoUbicacion.EDIFICIO, BUILDING,
+                Instant.parse("2026-11-08T15:00:00Z"));
+        ReflectionTestUtils.setField(request, "id", REQUEST);
+        return request;
+    }
+
+    /**
+     * A created request returns the id of MS05 and the call follows the standard
      */
     @Test
-    void sinRolesNiPermisosNoPropagaIdentidad() throws Exception {
-        for (String[] caso : new String[][] { { null, null }, { "ESTUDIANTE", null }, { null, PERMISOS },
-                { " ", PERMISOS } }) {
-            responder(200, "{\"idIncidente\":\"SOL-123\"}");
+    void aCreatedRequestReturnsTheIdOfMs05() {
+        answer(201, "{\"idIncidente\":\"SOL-123\",\"estado\":\"REPORTADA\"}");
 
-            assertEquals(Tipo.CREADA, cliente(2000).enviar(solicitud(), caso[0], caso[1], "corr-1").tipo());
+        ResultadoEnvioMs05 result = client(2000).enviar(request(), "ESTUDIANTE", PERMISSIONS, "corr-1");
 
-            assertNull(cabeceras.get().getFirst("X-User-Id"));
-            assertNull(cabeceras.get().getFirst("X-User-Role"));
-            assertNull(cabeceras.get().getFirst("X-User-Permission"));
+        assertEquals(ResultadoEnvioMs05.creada("SOL-123"), result);
+        assertEquals("POST", method.get());
+        assertEquals("/api/v1/incidentes/eventos/" + EVENT, path.get());
+        Headers received = headers.get();
+        assertEquals("clave-ms04", received.getFirst("X-Service-Key"));
+        assertEquals("corr-1", received.getFirst("X-Correlation-ID"));
+        assertEquals(USER.toString(), received.getFirst("X-User-Id"));
+        assertEquals("ESTUDIANTE", received.getFirst("X-User-Role"));
+        assertEquals(PERMISSIONS, received.getFirst("X-User-Permission"));
+    }
+
+    /**
+     * The body is an incident with the priority, the location and the check-in that originated it
+     */
+    @Test
+    void theBodyIsAnIncidentWithPriorityLocationAndOriginCheckin() {
+        answer(200, "{\"idIncidente\":\"SOL-123\"}");
+
+        client(2000).enviar(request(), "ESTUDIANTE", PERMISSIONS, "corr-1");
+
+        JsonNode sent = JsonMapper.builder().build().readTree(receivedBody.get());
+        assertEquals(1, sent.get("prioridadId").asInt());
+        assertEquals(BUILDING.toString(), sent.get("ubicacionId").asString());
+        assertEquals("EDIFICIO", sent.get("tipoUbicacion").asString());
+        assertEquals("Solicitud de asistencia generada por el check-in " + CHECKIN,
+                sent.get("descripcion").asString());
+        assertEquals(4, sent.size());
+    }
+
+    /**
+     * The body travels with Content-Length and not in chunks
+     */
+    @Test
+    void theBodyTravelsWithContentLength() {
+        answer(201, "{\"idIncidente\":\"SOL-123\"}");
+
+        client(2000).enviar(request(), "ESTUDIANTE", PERMISSIONS, "corr-1");
+
+        Headers received = headers.get();
+        assertNull(received.getFirst("Transfer-Encoding"));
+        assertEquals(String.valueOf(receivedBody.get().getBytes(StandardCharsets.UTF_8).length),
+                received.getFirst("Content-Length"));
+        assertEquals("application/json", received.getFirst("Content-Type"));
+    }
+
+    /**
+     * Without roles or permissions no identity is propagated: the Gateway answers 400 when X-User-Id arrives without
+     * X-User-Role and X-User-Permission (RF-GW-08)
+     */
+    @Test
+    void withoutRolesOrPermissionsNoIdentityIsPropagated() {
+        for (String[] identity : new String[][] { { null, null }, { "ESTUDIANTE", null }, { null, PERMISSIONS },
+                { " ", PERMISSIONS } }) {
+            answer(200, "{\"idIncidente\":\"SOL-123\"}");
+
+            assertEquals(Tipo.CREADA, client(2000).enviar(request(), identity[0], identity[1], "corr-1").tipo());
+
+            assertNull(headers.get().getFirst("X-User-Id"));
+            assertNull(headers.get().getFirst("X-User-Role"));
+            assertNull(headers.get().getFirst("X-User-Permission"));
         }
     }
 
+    /**
+     * A numeric id of MS05 is kept as text
+     */
     @Test
-    void unIdNumericoDeMs05SeGuardaComoTexto() throws Exception {
-        responder(201, "{\"idIncidente\":42}");
+    void aNumericIdOfMs05IsKeptAsText() {
+        answer(201, "{\"idIncidente\":42}");
 
-        assertEquals(ResultadoEnvioMs05.creada("42"), cliente(2000).enviar(solicitud(), "ESTUDIANTE", PERMISOS, "c"));
+        assertEquals(ResultadoEnvioMs05.creada("42"), client(2000).enviar(request(), "ESTUDIANTE", PERMISSIONS, "c"));
     }
 
+    /**
+     * Data rejected by MS05 leaves the request rejected
+     */
     @Test
-    void datosInvalidosEnMs05SonRechazada() throws Exception {
-        for (int codigo : new int[] { 400, 403, 422 }) {
-            responder(codigo, "{\"codigo\":\"VALIDACION\",\"mensaje\":\"detalle interno\"}");
-            ResultadoEnvioMs05 resultado = cliente(2000).enviar(solicitud(), "ESTUDIANTE", PERMISOS, "c");
-            assertEquals(Tipo.RECHAZADA, resultado.tipo());
-            assertNull(resultado.solicitudMs05Id());
+    void invalidDataInMs05IsRejected() {
+        for (int code : new int[] { 400, 403, 422 }) {
+            answer(code, "{\"codigo\":\"VALIDACION\",\"mensaje\":\"detalle interno\"}");
+            ResultadoEnvioMs05 result = client(2000).enviar(request(), "ESTUDIANTE", PERMISSIONS, "c");
+            assertEquals(Tipo.RECHAZADA, result.tipo());
+            assertNull(result.solicitudMs05Id());
         }
     }
 
+    /**
+     * Any other answer is unavailable
+     */
     @Test
-    void cualquierOtraRespuestaEsNoDisponible() throws Exception {
-        for (int codigo : new int[] { 500, 502, 503, 404, 401, 409 }) {
-            responder(codigo, "{\"mensaje\":\"detalle interno\"}");
-            assertEquals(Tipo.NO_DISPONIBLE, cliente(2000).enviar(solicitud(), "ESTUDIANTE", PERMISOS, "c").tipo());
+    void anyOtherAnswerIsUnavailable() {
+        for (int code : new int[] { 500, 502, 503, 404, 401, 409 }) {
+            answer(code, "{\"mensaje\":\"detalle interno\"}");
+            assertEquals(Tipo.NO_DISPONIBLE, client(2000).enviar(request(), "ESTUDIANTE", PERMISSIONS, "c").tipo());
         }
     }
 
+    /**
+     * A successful answer without id is unavailable
+     */
     @Test
-    void unaRespuestaExitosaSinIdEsNoDisponible() throws Exception {
-        responder(200, "{\"estado\":\"REPORTADO\"}");
-        assertEquals(Tipo.NO_DISPONIBLE, cliente(2000).enviar(solicitud(), "ESTUDIANTE", PERMISOS, "c").tipo());
+    void aSuccessfulAnswerWithoutIdIsUnavailable() {
+        answer(200, "{\"estado\":\"REPORTADO\"}");
+        assertEquals(Tipo.NO_DISPONIBLE, client(2000).enviar(request(), "ESTUDIANTE", PERMISSIONS, "c").tipo());
 
-        responder(201, null);
-        assertEquals(Tipo.NO_DISPONIBLE, cliente(2000).enviar(solicitud(), "ESTUDIANTE", PERMISOS, "c").tipo());
+        answer(201, null);
+        assertEquals(Tipo.NO_DISPONIBLE, client(2000).enviar(request(), "ESTUDIANTE", PERMISSIONS, "c").tipo());
     }
 
+    /**
+     * If MS05 does not answer in time it is unavailable
+     */
     @Test
-    void siMs05NoRespondeATiempoEsNoDisponible() throws Exception {
-        responder(201, "{\"idIncidente\":\"SOL-123\"}");
-        demoraMs = 1500;
+    void aLateAnswerIsUnavailable() {
+        answer(201, "{\"idIncidente\":\"SOL-123\"}");
+        delayMs = 1500;
 
-        assertEquals(Tipo.NO_DISPONIBLE, cliente(300).enviar(solicitud(), "ESTUDIANTE", PERMISOS, "c").tipo());
+        assertEquals(Tipo.NO_DISPONIBLE, client(300).enviar(request(), "ESTUDIANTE", PERMISSIONS, "c").tipo());
     }
 
+    /**
+     * Without the URL of the Gateway it is unavailable
+     */
     @Test
-    void sinLaUrlDelGatewayEsNoDisponible() throws Exception {
-        Ms05SolicitudAsistenciaClient sinUrl = new Ms05SolicitudAsistenciaClient("", "clave", 2000, RUTA, 1);
+    void withoutGatewayUrlIsUnavailable() {
+        Ms05SolicitudAsistenciaClient withoutUrl = new Ms05SolicitudAsistenciaClient("", "clave", 2000, ROUTE, 1);
 
-        assertEquals(Tipo.NO_DISPONIBLE, sinUrl.enviar(solicitud(), "ESTUDIANTE", PERMISOS, "c").tipo());
+        assertEquals(Tipo.NO_DISPONIBLE, withoutUrl.enviar(request(), "ESTUDIANTE", PERMISSIONS, "c").tipo());
     }
 
+    /**
+     * If the Gateway is down it is unavailable
+     */
     @Test
-    void siElGatewayNoEstaArribaEsNoDisponible() throws Exception {
-        Ms05SolicitudAsistenciaClient cliente = cliente(2000);
-        servidor.stop(0);
+    void aGatewayDownIsUnavailable() {
+        Ms05SolicitudAsistenciaClient client = client(2000);
+        server.stop(0);
 
-        assertEquals(Tipo.NO_DISPONIBLE, cliente.enviar(solicitud(), "ESTUDIANTE", PERMISOS, "c").tipo());
+        assertEquals(Tipo.NO_DISPONIBLE, client.enviar(request(), "ESTUDIANTE", PERMISSIONS, "c").tipo());
     }
 }
