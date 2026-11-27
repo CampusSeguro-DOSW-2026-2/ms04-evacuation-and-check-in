@@ -117,7 +117,7 @@ class EventoMapperTest {
         Evento event = event(EstadoEvento.EN_EJECUCION);
 
         EventoResponse answer = EventoMapper.aRespuesta(event);
-        event.getRolesConvocados().add("COORDINADOR");
+        event.setRolesConvocados(List.of("COORDINADOR"));
 
         assertEquals(List.of("ESTUDIANTE", "PROFESOR"), answer.rolesConvocados());
         assertThrows(UnsupportedOperationException.class, () -> answer.rolesConvocados().add("X"));

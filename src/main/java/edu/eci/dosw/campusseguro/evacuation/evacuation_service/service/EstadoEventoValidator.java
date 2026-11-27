@@ -71,6 +71,24 @@ public final class EstadoEventoValidator {
      */
     public record EstadoValidado(String nombre, boolean simulacro, EstadoEvento estado, Instant fechaInicio,
             List<String> edificios, List<String> zonas, List<String> roles) {
+
+        /**
+         * Keeps immutable copies of the scenario and the convened roles
+         *
+         * @param nombre name without lateral spaces
+         * @param simulacro type of event
+         * @param estado received state
+         * @param fechaInicio start date in UTC, or null
+         * @param edificios buildings of the scenario
+         * @param zonas zones of the scenario
+         * @param roles convened roles
+         * @throws NullPointerException if a list or one of its elements is null
+         */
+        public EstadoValidado {
+            edificios = List.copyOf(edificios);
+            zonas = List.copyOf(zonas);
+            roles = List.copyOf(roles);
+        }
     }
 
     /**

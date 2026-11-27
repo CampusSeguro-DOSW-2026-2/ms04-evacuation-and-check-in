@@ -39,8 +39,8 @@ public final class ValidationErrors {
             if (property != null && !property.value().isBlank()) {
                 return property.value();
             }
-        } catch (NoSuchFieldException e) {
-            // un atributo anidado o heredado conserva su nombre
+        } catch (NoSuchFieldException ignored) {
+            // A nested or inherited attribute keeps its own name
         }
         return field;
     }

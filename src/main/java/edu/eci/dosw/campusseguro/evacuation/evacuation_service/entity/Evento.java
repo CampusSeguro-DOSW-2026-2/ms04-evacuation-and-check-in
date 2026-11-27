@@ -2,6 +2,7 @@ package edu.eci.dosw.campusseguro.evacuation.evacuation_service.entity;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 
@@ -162,24 +163,39 @@ public class Evento {
         this.fechaCierre = fechaCierre;
     }
 
+    /**
+     * Returns the convened roles as a read-only view; they change only through its setter
+     *
+     * @return the convened roles, never null
+     */
     public List<String> getRolesConvocados() {
-        return rolesConvocados;
+        return Collections.unmodifiableList(rolesConvocados);
     }
 
     public void setRolesConvocados(List<String> rolesConvocados) {
         this.rolesConvocados = rolesConvocados == null ? new ArrayList<>() : new ArrayList<>(rolesConvocados);
     }
 
+    /**
+     * Returns the buildings of the scenario as a read-only view; they change only through its setter
+     *
+     * @return the buildings of the scenario, never null
+     */
     public List<String> getEscenarioEdificios() {
-        return escenarioEdificios;
+        return Collections.unmodifiableList(escenarioEdificios);
     }
 
     public void setEscenarioEdificios(List<String> escenarioEdificios) {
         this.escenarioEdificios = escenarioEdificios == null ? new ArrayList<>() : new ArrayList<>(escenarioEdificios);
     }
 
+    /**
+     * Returns the zones of the scenario as a read-only view; they change only through its setter
+     *
+     * @return the zones of the scenario, never null
+     */
     public List<String> getEscenarioZonas() {
-        return escenarioZonas;
+        return Collections.unmodifiableList(escenarioZonas);
     }
 
     public void setEscenarioZonas(List<String> escenarioZonas) {
