@@ -34,13 +34,16 @@ import edu.eci.dosw.campusseguro.evacuation.evacuation_service.util.Json;
  * ubicación del check-in y la prioridad configurada. Por eso MS05 autoriza con la identidad del usuario
  * (X-User-Id, X-User-Role y X-User-Permission, permiso ms05:incident:report) y no con X-Service-Name. La ruta se
  * configura con MS05_SOLICITUDES_PATH ({eventoId} se reemplaza por el evento de la solicitud) y la prioridad con
- * MS05_PRIORIDAD_ID, el id del catálogo de prioridades de MS05 (1 = EMERGENCIA). MS05 no tiene llave de idempotencia
- * por check-in: MS04 evita los duplicados con su regla de una solicitud por usuario y evento (RN-MS04-11)
+ * MS05_PRIORIDAD_ID, el id del catálogo de prioridades de MS05 (1 = EMERGENCIA). El id de la solicitud viaja en
+ * Idempotency-Key: si MS04 repite el envío (timeout del cliente o reenvío periódico), MS05 devuelve el incidente ya
+ * creado en vez de duplicarlo (RN-MS04-12). Un 409 de MS05 (llave usada por otra solicitud) deja la solicitud
+ * RECHAZADA porque repetirla nunca va a funcionar
  */
 @Component
 public class Ms05SolicitudAsistenciaClient implements SolicitudAsistenciaClient {
 
     static final String SERVICE_KEY_HEADER = "X-Service-Key";
+    static final String IDEMPOTENCY_KEY_HEADER = "Idempotency-Key";
 
     private static final Logger log = LoggerFactory.getLogger(Ms05SolicitudAsistenciaClient.class);
 
@@ -97,6 +100,11 @@ public class Ms05SolicitudAsistenciaClient implements SolicitudAsistenciaClient 
                         if (correlationId != null) {
                             headers.set(CorrelationIds.HEADER, correlationId);
                         }
+                        // La llave es el id de la solicitud: es el mismo en el envío del check-in y en cada reenvío
+                        // periódico, así MS05 no crea un incidente nuevo al repetir el envío
+                        if (solicitud.getId() != null) {
+                            headers.set(IDEMPOTENCY_KEY_HEADER, solicitud.getId().toString());
+                        }
                         // MS05 registra el incidente a nombre de X-User-Id y lo autoriza con X-User-Permission. El
                         // Gateway exige las tres cabeceras juntas o ninguna; en el reenvío periódico llegan las que
                         // se guardaron con la solicitud. Sin ellas MS05 responde 401 y la solicitud sigue pendiente
@@ -110,7 +118,7 @@ public class Ms05SolicitudAsistenciaClient implements SolicitudAsistenciaClient 
                     .body(Json.write(cuerpo(solicitud, prioridadId)).getBytes(StandardCharsets.UTF_8))
                     .exchange((request, response) -> {
                         int status = response.getStatusCode().value();
-                        if (status == 400 || status == 403 || status == 422) {
+                        if (status == 400 || status == 403 || status == 409 || status == 422) {
                             log.warn("MS05 rechazó la solicitud de asistencia {} con HTTP {}", solicitud.getId(),
                                     status);
                             return ResultadoEnvioMs05.rechazada("HTTP " + status);
