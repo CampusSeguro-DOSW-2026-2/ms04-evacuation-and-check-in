@@ -144,6 +144,27 @@ class Ms05SolicitudAsistenciaClientTest {
         assertEquals(USER.toString(), received.getFirst("X-User-Id"));
         assertEquals("ESTUDIANTE", received.getFirst("X-User-Role"));
         assertEquals(PERMISSIONS, received.getFirst("X-User-Permission"));
+        assertEquals(REQUEST.toString(), received.getFirst("Idempotency-Key"));
+    }
+
+    /**
+     * The id of the request travels as the idempotency key and does not change between attempts: the periodic resend
+     * repeats it so MS05 returns the incident already created instead of duplicating it (RN-MS04-12)
+     */
+    @Test
+    void theSameRequestAlwaysSendsTheSameIdempotencyKey() {
+        answer(200, "{\"idIncidente\":\"SOL-123\"}");
+        Ms05SolicitudAsistenciaClient client = client(2000);
+        SolicitudAsistencia request = request();
+
+        client.enviar(request, "ESTUDIANTE", PERMISSIONS, "corr-1");
+        String firstAttempt = headers.get().getFirst("Idempotency-Key");
+
+        client.enviar(request, "ESTUDIANTE", PERMISSIONS, "corr-2");
+        String secondAttempt = headers.get().getFirst("Idempotency-Key");
+
+        assertEquals(REQUEST.toString(), firstAttempt);
+        assertEquals(firstAttempt, secondAttempt);
     }
 
     /**
@@ -209,11 +230,12 @@ class Ms05SolicitudAsistenciaClientTest {
     }
 
     /**
-     * Data rejected by MS05 leaves the request rejected
+     * Data rejected by MS05 leaves the request rejected. 409 is the conflict of an idempotency key already used by
+     * another request: repeating it would never succeed, so it is not retried
      */
     @Test
     void invalidDataInMs05IsRejected() {
-        for (int code : new int[] { 400, 403, 422 }) {
+        for (int code : new int[] { 400, 403, 409, 422 }) {
             answer(code, "{\"codigo\":\"VALIDACION\",\"mensaje\":\"detalle interno\"}");
             ResultadoEnvioMs05 result = client(2000).enviar(request(), "ESTUDIANTE", PERMISSIONS, "c");
             assertEquals(Tipo.RECHAZADA, result.tipo());
@@ -226,7 +248,7 @@ class Ms05SolicitudAsistenciaClientTest {
      */
     @Test
     void anyOtherAnswerIsUnavailable() {
-        for (int code : new int[] { 500, 502, 503, 404, 401, 409 }) {
+        for (int code : new int[] { 500, 502, 503, 404, 401 }) {
             answer(code, "{\"mensaje\":\"detalle interno\"}");
             assertEquals(Tipo.NO_DISPONIBLE, client(2000).enviar(request(), "ESTUDIANTE", PERMISSIONS, "c").tipo());
         }
